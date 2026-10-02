@@ -45,6 +45,8 @@
         if (!$btn.length) return;
 
         var offset = 0;
+        var totalFilled = 0;
+        var totalSkipped = 0;
 
         $btn.on('click', function (e) {
             e.preventDefault();
@@ -60,13 +62,21 @@
             }).done(function (res) {
                 $btn.prop('disabled', false).text('تکمیل Alt تصاویر بدون Alt (۲۰ تایی)');
                 if (res.success) {
-                    offset += res.data.processed;
-                    var msg = res.data.message + ' (مجموع پردازش‌شده در این نشست: ' + offset + ')';
+                    var filled = res.data.filled || 0;
+                    var skipped = res.data.skipped || 0;
+                    var processed = res.data.processed || 0;
+
+                    // Only advance offset for skipped items, as filled ones are removed from NOT EXISTS query
+                    offset += skipped;
+                    totalFilled += filled;
+                    totalSkipped += skipped;
+
+                    var msg = res.data.message + ' (مجموع تکمیل‌شده در این نشست: ' + totalFilled + ')';
                     $status.text(msg);
                     if (window.wsoToast) {
                         window.wsoToast(res.data.message, 'success');
                     }
-                    if (res.data.processed === 0) {
+                    if (processed === 0) {
                         $status.text('همه تصاویر موجود دارای Alt هستند.');
                     }
                 } else {

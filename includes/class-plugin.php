@@ -164,8 +164,12 @@ class Plugin {
             }, 99);
         }
 
-        // Automatic Alt Text must also run for uploads handled outside wp-admin
-        // (REST API, frontend forms). The class itself stays idle when disabled.
+        // Media Library & Auto Alt hooks must also run for uploads handled outside wp-admin
+        // (Gutenberg REST API, frontend forms, XML-RPC). The classes stay idle if disabled.
+        if (class_exists('WSO\\Admin\\Media_Library')) {
+            Admin\Media_Library::instance();
+        }
+
         if (class_exists('WSO\\Tools\\Auto_Alt')) {
             Tools\Auto_Alt::instance();
         }

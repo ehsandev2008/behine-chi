@@ -86,36 +86,9 @@ if (!function_exists('wso_max_size')) {
    WORDPRESS INTEGRATION HOOKS (PRESERVING BACKWARD COMPATIBILITY)
    ========================================================================== */
 
-/**
- * Handle upload conversion before WordPress finishes processing.
- */
-add_filter('wp_handle_upload', function ($upload) {
-    if (!wso_enabled()) {
-        return $upload;
-    }
-
-    $file = $upload['file'] ?? null;
-    if (!$file || !file_exists($file)) {
-        return $upload;
-    }
-
-    // Auto-optimize upload
-    $result = WSO\Engine\Optimizer::instance()->optimize_file($file);
-
-    if (!empty($result['formats']['avif']) && file_exists($result['formats']['avif'])) {
-        $avif_file = $result['formats']['avif'];
-        $upload['file'] = $avif_file;
-        $upload['url']  = str_replace(basename($upload['url']), basename($avif_file), $upload['url']);
-        $upload['type'] = 'image/avif';
-    } elseif (!empty($result['formats']['webp']) && file_exists($result['formats']['webp'])) {
-        $webp_file = $result['formats']['webp'];
-        $upload['file'] = $webp_file;
-        $upload['url']  = str_replace(basename($upload['url']), basename($webp_file), $upload['url']);
-        $upload['type'] = 'image/webp';
-    }
-
-    return $upload;
-}, 20);
+// Note: Upload-time auto-optimization is handled canonically via the
+// wp_generate_attachment_metadata filter in Media_Library::save_upload_optimization_meta,
+// ensuring attachment DB records, thumbnails, backups, and metadata remain 100% consistent.
 
 /**
  * Force WordPress Image Editor to output WebP or AVIF format when enabled.

@@ -54,20 +54,55 @@ class Cache_Manager {
             return $count;
         }
 
+        $backup_dir = function_exists('wp_normalize_path')
+            ? wp_normalize_path(trailingslashit($upload_dir) . 'wso-backups')
+            : trailingslashit($upload_dir) . 'wso-backups';
+
         $iterator = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($upload_dir, \RecursiveDirectoryIterator::SKIP_DOTS),
             \RecursiveIteratorIterator::SELF_FIRST
         );
 
+        $fallback_exts = ['jpg', 'jpeg', 'png', 'gif', 'svg', 'JPG', 'JPEG', 'PNG', 'GIF', 'SVG'];
+
         foreach ($iterator as $item) {
             if ($item->isFile()) {
+                $pathname = function_exists('wp_normalize_path')
+                    ? wp_normalize_path($item->getPathname())
+                    : $item->getPathname();
+
+                // Never touch files inside the backup directory
+                if (str_starts_with($pathname, $backup_dir) || strpos($pathname, '/wso-backups/') !== false) {
+                    continue;
+                }
+
                 $ext = strtolower($item->getExtension());
                 if (in_array($ext, ['webp', 'avif'], true)) {
-                    if (@unlink($item->getPathname())) {
+                    $dir = dirname($pathname);
+                    $filename = pathinfo($pathname, PATHINFO_FILENAME);
+
+                    // Verify a sibling source file exists before deleting to protect original uploads
+                    $has_fallback = false;
+                    if (file_exists($dir . '/' . $filename)) {
+                        $has_fallback = true;
+                    } else {
+                        foreach ($fallback_exts as $fb_ext) {
+                            if (file_exists($dir . '/' . $filename . '.' . $fb_ext)) {
+                                $has_fallback = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if ($has_fallback && @unlink($pathname)) {
                         $count++;
                     }
                 }
             }
+        }
+
+        if (function_exists('delete_transient')) {
+            delete_transient('wso_dashboard_folder_stats');
         }
 
         return $count;
@@ -125,6 +160,10 @@ class Cache_Manager {
                     }
                 }
             }
+        }
+
+        if (function_exists('delete_transient')) {
+            delete_transient('wso_dashboard_folder_stats');
         }
 
         wp_send_json_success([

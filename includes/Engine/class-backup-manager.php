@@ -117,43 +117,74 @@ class Backup_Manager {
     }
 
     /**
+     * Resolves existing backup path for a file, checking candidate extensions
+     * in case the working file was converted to WebP or AVIF.
+     *
+     * @param string $file_path
+     * @return string|null
+     */
+    public function find_backup_path(string $file_path): ?string {
+        $exact = $this->get_backup_path($file_path);
+        if (file_exists($exact) && filesize($exact) > 0) {
+            return $exact;
+        }
+
+        $info = pathinfo($exact);
+        $base_name = $info['dirname'] . '/' . $info['filename'];
+        $candidates = ['jpg', 'jpeg', 'png', 'webp', 'avif', 'svg'];
+        foreach ($candidates as $ext) {
+            $candidate_path = $base_name . '.' . $ext;
+            if (file_exists($candidate_path) && filesize($candidate_path) > 0) {
+                return $candidate_path;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Checks if backup exists for a file.
      *
      * @param string $file_path
      * @return bool
      */
     public function has_backup(string $file_path): bool {
-        $path = $this->get_backup_path($file_path);
-        return file_exists($path) && filesize($path) > 0;
+        return null !== $this->find_backup_path($file_path);
     }
 
     /**
      * Restores a single file from its backup.
      *
      * @param string $file_path
-     * @return bool
+     * @return string|bool Restored file path on success, false on failure.
      */
-    public function restore(string $file_path): bool {
-        $backup_path = $this->get_backup_path($file_path);
-        if (!file_exists($backup_path) || filesize($backup_path) === 0) {
+    public function restore(string $file_path) {
+        $backup_path = $this->find_backup_path($file_path);
+        if (!$backup_path || !file_exists($backup_path) || filesize($backup_path) === 0) {
             return false;
         }
 
-        $restored = @copy($backup_path, $file_path);
+        $backup_ext = strtolower(pathinfo($backup_path, PATHINFO_EXTENSION));
+        $file_info = pathinfo($file_path);
+        $target_path = $file_info['dirname'] . '/' . $file_info['filename'] . '.' . $backup_ext;
 
-        // Also clean up WebP and AVIF generated variants
-        $info = pathinfo($file_path);
-        $webp = $info['dirname'] . '/' . $info['filename'] . '.webp';
-        $avif = $info['dirname'] . '/' . $info['filename'] . '.avif';
+        $restored = @copy($backup_path, $target_path);
+        if (!$restored) {
+            return false;
+        }
 
-        if (file_exists($webp)) {
+        // Clean up WebP and AVIF variants if original wasn't of that type
+        $webp = $file_info['dirname'] . '/' . $file_info['filename'] . '.webp';
+        $avif = $file_info['dirname'] . '/' . $file_info['filename'] . '.avif';
+
+        if ($backup_ext !== 'webp' && file_exists($webp)) {
             @unlink($webp);
         }
-        if (file_exists($avif)) {
+        if ($backup_ext !== 'avif' && file_exists($avif)) {
             @unlink($avif);
         }
 
-        return (bool) $restored;
+        return $target_path;
     }
 
     /**
@@ -198,9 +229,52 @@ class Backup_Manager {
             }
         }
 
-        // Clean attachment postmeta
+        // Revert attachment records in database before deleting meta
         global $wpdb;
+        $optimized_attachments = $wpdb->get_col("SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_wso_optimized' AND meta_value = '1'");
+        if (!empty($optimized_attachments)) {
+            if (file_exists(ABSPATH . 'wp-admin/includes/image.php')) {
+                require_once ABSPATH . 'wp-admin/includes/image.php';
+            }
+            $basedir = wp_upload_dir()['basedir'];
+
+            foreach ($optimized_attachments as $att_id) {
+                $att_id = (int) $att_id;
+                $current_file = get_attached_file($att_id);
+                if (!$current_file) {
+                    continue;
+                }
+
+                $ext = strtolower(pathinfo($current_file, PATHINFO_EXTENSION));
+                if (in_array($ext, ['webp', 'avif'], true)) {
+                    $base = pathinfo($current_file, PATHINFO_DIRNAME) . '/' . pathinfo($current_file, PATHINFO_FILENAME);
+                    foreach (['jpg', 'jpeg', 'png', 'svg'] as $orig_ext) {
+                        $candidate = $base . '.' . $orig_ext;
+                        if (file_exists($candidate)) {
+                            $rel = ltrim(str_replace($basedir, '', $candidate), '/\\');
+                            update_post_meta($att_id, '_wp_attached_file', $rel);
+                            $type = wp_check_filetype($candidate);
+                            if (!empty($type['type'])) {
+                                $wpdb->update($wpdb->posts, ['post_mime_type' => $type['type']], ['ID' => $att_id]);
+                            }
+                            if (function_exists('wp_generate_attachment_metadata')) {
+                                $new_meta = wp_generate_attachment_metadata($att_id, $candidate);
+                                if (is_array($new_meta)) {
+                                    wp_update_attachment_metadata($att_id, $new_meta);
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Clean attachment postmeta
         $wpdb->query("DELETE FROM {$wpdb->postmeta} WHERE meta_key IN ('_wso_optimized', '_wso_opt_data', '_wso_wm_hash')");
+
+        // Clear cached stats transient
+        delete_transient('wso_dashboard_folder_stats');
 
         return $count;
     }

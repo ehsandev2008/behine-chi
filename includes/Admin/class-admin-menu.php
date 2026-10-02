@@ -126,12 +126,12 @@ class Admin_Menu {
         $settings = Settings::instance();
         $stats    = Dashboard_Widgets::get_stats();
         $driver   = Optimizer::instance()->get_driver();
-        $is_dark  = false;
+        $is_dark  = (bool) $settings->get('wso_dark_mode', 0);
         $enabled  = (bool) $settings->get('wso_enable', 1);
 
         $available_fonts = Font_Manager::instance()->get_available_fonts();
         ?>
-        <div class="wso-wrap" id="wso-app" dir="rtl">
+        <div class="wso-wrap<?php echo $is_dark ? ' wso-dark-mode' : ''; ?>" id="wso-app" dir="rtl">
             
             <!-- STICKY TOP HEADER -->
             <header class="wso-header">
@@ -150,6 +150,12 @@ class Admin_Menu {
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
                         <input type="text" id="wso-settings-search" placeholder="جستجوی تنظیمات..." />
                     </div>
+
+                    <!-- Dark mode toggle button -->
+                    <button type="button" class="wso-btn-theme-toggle" id="wso-theme-toggle" title="تغییر حالت تاریک/روشن">
+                        <svg class="wso-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+                        <svg class="wso-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+                    </button>
 
                     <!-- Notification bell with badge -->
                     <button type="button" class="wso-btn-icon-toggle wso-nav-badge-trigger" id="wso-btn-open-notify" title="اعلان‌ها" onclick="jQuery('a[data-tab=tab-notifications]').click();">
@@ -173,7 +179,7 @@ class Admin_Menu {
             <?php endif; ?>
 
             <form id="wso-settings-form" method="post">
-                <input type="hidden" name="wso_dark_mode" id="wso_dark_mode_input" value="0" />
+                <input type="hidden" name="wso_dark_mode" id="wso_dark_mode_input" value="<?php echo $is_dark ? '1' : '0'; ?>" />
 
                 <div class="wso-container">
                     
@@ -494,6 +500,28 @@ class Admin_Menu {
                                         </span>
                                     </label>
                                 </div>
+
+                                <div class="wso-form-group wso-mt-4">
+                                    <label class="wso-toggle-label">
+                                        <input type="checkbox" name="wso_recompress_webp" id="wso_recompress_webp" value="1" <?php checked(1, $settings->get('wso_recompress_webp', 1)); ?>>
+                                        <span class="wso-toggle-slider"></span>
+                                        <span class="wso-toggle-text">
+                                            <strong>بهینه‌سازی و فشرده‌سازی مجدد تصاویر WebP موجود</strong>
+                                            <small>تصاویری که از قبل با فرمت WebP آپلود شده‌اند نیز با کیفیت تعیین‌شده فشرده می‌شوند (تنها در صورتی که حجمشان کاهش یابد).</small>
+                                        </span>
+                                    </label>
+                                </div>
+
+                                <div class="wso-form-group wso-mt-3" id="wso_webp_min_size_row">
+                                    <label for="wso_webp_min_size_kb" style="display:block; margin-bottom:6px;">
+                                        <strong>حداقل حجم تصویر WebP برای فشرده‌سازی مجدد:</strong>
+                                    </label>
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <input type="number" name="wso_webp_min_size_kb" id="wso_webp_min_size_kb" value="<?php echo esc_attr($settings->get('wso_webp_min_size_kb', 50)); ?>" min="0" max="10240" step="10" class="wso-input-small" style="width:100px;">
+                                        <span class="wso-unit">کیلوبایت (KB)</span>
+                                    </div>
+                                    <small class="wso-text-muted" style="display:block; margin-top:4px;">فقط تصاویر WebP با حجم بالاتر از این مقدار (مثلاً ۵۰ یا ۱۰۰ کیلوبایت) بررسی و فشرده می‌شوند تا کیفیت آیکون‌ها و فایل‌های خیلی سبک تغییر نکند. عدد ۰ به معنی بررسی تمام تصاویر WebP است.</small>
+                                </div>
                             </div>
                         </div>
 
@@ -624,6 +652,13 @@ class Admin_Menu {
                                     <button type="button" class="wso-btn wso-btn-danger" id="wso-reset-bulk">
                                         پاکسازی و ریست صف
                                     </button>
+                                </div>
+
+                                <div class="wso-mt-2" style="margin-bottom: 15px;">
+                                    <label style="display:inline-flex; align-items:center; gap:8px; cursor:pointer; font-size:13px;">
+                                        <input type="checkbox" id="wso-force-reoptimize" value="1">
+                                        <span><strong>پردازش مجدد کل رسانه‌ها (شامل تصاویر بررسی یا نشانه‌گذاری‌شده قبلی)</strong> — برای فشرده‌سازی WebPهای موجود یا اعمال کیفیت جدید</span>
+                                    </label>
                                 </div>
 
                                 <div class="wso-progress-container wso-mt-4" style="display:none;" id="wso-progress-box">

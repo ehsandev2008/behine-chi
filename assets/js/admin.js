@@ -4,6 +4,7 @@
     'use strict';
 
     $(document).ready(function () {
+        initThemeToggle();
         initTabs();
         initSettingsSearch();
         initFormSubmission();
@@ -16,12 +17,57 @@
         initNotificationsCenter();
         
         // Expose helper functions globally
+        window.wsoEscapeHtml = escapeHtml;
         window.wsoToast = showToast;
         window.wsoConfirm = showConfirm;
         
         // Load initial notifications counts
         loadNotifications();
     });
+
+    // HTML Entity escaping helper to prevent XSS injection
+    function escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    // Dark/Light Mode Theme Controller
+    function initThemeToggle() {
+        var $btn = $('#wso-theme-toggle');
+        if (!$btn.length) return;
+
+        // Restore user's local preference if previously saved
+        var localTheme = localStorage.getItem('wso_dark_mode');
+        if (localTheme !== null) {
+            if (localTheme === '1') {
+                $('#wso-app').addClass('wso-dark-mode');
+                $('#wso_dark_mode_input').val('1');
+            } else {
+                $('#wso-app').removeClass('wso-dark-mode');
+                $('#wso_dark_mode_input').val('0');
+            }
+        }
+
+        $btn.on('click', function (e) {
+            e.preventDefault();
+            var $app = $('#wso-app');
+            var isDark = $app.hasClass('wso-dark-mode');
+            if (isDark) {
+                $app.removeClass('wso-dark-mode');
+                $('#wso_dark_mode_input').val('0');
+                localStorage.setItem('wso_dark_mode', '0');
+            } else {
+                $app.addClass('wso-dark-mode');
+                $('#wso_dark_mode_input').val('1');
+                localStorage.setItem('wso_dark_mode', '1');
+            }
+        });
+    }
 
     // Custom Modal Confirm overlay dialog replacement
     function showConfirm(title, message, callback) {
@@ -68,9 +114,9 @@
             icon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>';
         }
 
-        var html = '<div id="' + id + '" class="wso-toast ' + type + '">' +
+        var html = '<div id="' + id + '" class="wso-toast ' + escapeHtml(type) + '">' +
             '<div class="wso-toast-icon">' + icon + '</div>' +
-            '<div class="wso-toast-message">' + message + '</div>' +
+            '<div class="wso-toast-message">' + escapeHtml(message) + '</div>' +
             '</div>';
 
         $container.append(html);
@@ -332,11 +378,11 @@
                             icon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>';
                         }
 
-                        html += '<div class="wso-notification-card ' + unreadClass + ' ' + item.type + '">' +
+                        html += '<div class="wso-notification-card ' + unreadClass + ' ' + escapeHtml(item.type) + '">' +
                             '<div class="wso-notification-icon">' + icon + '</div>' +
                             '<div class="wso-notification-body">' +
-                                '<p class="wso-notification-text">' + item.message + '</p>' +
-                                '<span class="wso-notification-time">' + item.created_at + '</span>' +
+                                '<p class="wso-notification-text">' + escapeHtml(item.message) + '</p>' +
+                                '<span class="wso-notification-time">' + escapeHtml(item.created_at) + '</span>' +
                             '</div>' +
                             dismissBtn +
                             '</div>';
@@ -491,14 +537,14 @@
                     if (log.status === 'skipped') { badgeClass = 'wso-badge-neutral'; statusText = 'نادیده گرفته‌شده'; }
 
                     html += '<tr>' +
-                        '<td>' + log.id + '</td>' +
-                        '<td><strong>' + log.file_name + '</strong></td>' +
+                        '<td>' + parseInt(log.id, 10) + '</td>' +
+                        '<td><strong>' + escapeHtml(log.file_name) + '</strong></td>' +
                         '<td>' + formatBytes(log.original_size) + '</td>' +
                         '<td>' + formatBytes(log.optimized_size) + '</td>' +
-                        '<td>٪' + (log.savings_percent || 0) + '</td>' +
-                        '<td><span class="wso-badge ' + badgeClass + '">' + statusText + '</span></td>' +
-                        '<td>' + log.message + '</td>' +
-                        '<td>' + log.created_at + '</td>' +
+                        '<td>٪' + escapeHtml(log.savings_percent || 0) + '</td>' +
+                        '<td><span class="wso-badge ' + badgeClass + '">' + escapeHtml(statusText) + '</span></td>' +
+                        '<td>' + escapeHtml(log.message) + '</td>' +
+                        '<td>' + escapeHtml(log.created_at) + '</td>' +
                         '</tr>';
                 });
                 $body.html(html);

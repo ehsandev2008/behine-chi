@@ -71,10 +71,13 @@ class GD_Driver implements Image_Driver {
             return false;
         }
 
-        // Handle PNG transparency
+        // Handle transparency
         if ($source_mime === 'image/png') {
             imagepalettetotruecolor($image);
             imagealphablending($image, true);
+            imagesavealpha($image, true);
+        } elseif ($source_mime === 'image/webp') {
+            imagealphablending($image, false);
             imagesavealpha($image, true);
         }
 

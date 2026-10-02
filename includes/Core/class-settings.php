@@ -44,6 +44,8 @@ class Settings {
         'wso_max_height'       => 2560,
         'wso_auto_optimize'    => 1,
         'wso_dark_mode'        => 0,
+        'wso_recompress_webp'  => 1,
+        'wso_webp_min_size_kb' => 50, // KB threshold for optimizing existing WebP images
         // Watermark settings (all off/empty by default: zero behavior change until configured).
         'wso_watermark_enabled'  => 0,
         'wso_watermark_image'    => 0,

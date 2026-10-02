@@ -203,8 +203,26 @@ class Optimizer {
 
         $generated_formats = [];
 
-        // Generate WebP
-        if ($settings->get('wso_convert_webp', 1)) {
+        // Generate WebP or Re-compress existing WebP
+        if ($ext === 'webp') {
+            $recompress_webp = (bool) $settings->get('wso_recompress_webp', 1);
+            $min_size_kb = (int) $settings->get('wso_webp_min_size_kb', 50);
+            $min_size_bytes = $min_size_kb * 1024;
+
+            if ($recompress_webp && ($orig_size >= $min_size_bytes)) {
+                $temp_file = $file_path . '.wso_tmp.webp';
+                if ($this->driver->convert($file_path, $temp_file, 'image/webp', $quality)) {
+                    $new_size = file_exists($temp_file) ? (int) filesize($temp_file) : 0;
+                    if ($new_size > 0 && $new_size < $orig_size) {
+                        @rename($temp_file, $file_path);
+                        clearstatcache(true, $file_path);
+                        $generated_formats['webp'] = $file_path;
+                    } else {
+                        @unlink($temp_file);
+                    }
+                }
+            }
+        } elseif ($settings->get('wso_convert_webp', 1)) {
             $info = pathinfo($file_path);
             $webp_file = $info['dirname'] . '/' . $info['filename'] . '.webp';
             if ($this->driver->convert($file_path, $webp_file, 'image/webp', $quality)) {
@@ -213,7 +231,7 @@ class Optimizer {
         }
 
         // Generate AVIF
-        if ($settings->get('wso_convert_avif', 0)) {
+        if ($ext !== 'avif' && $settings->get('wso_convert_avif', 0)) {
             $info = pathinfo($file_path);
             $avif_file = $info['dirname'] . '/' . $info['filename'] . '.avif';
             if ($this->driver->convert($file_path, $avif_file, 'image/avif', $quality)) {
@@ -294,7 +312,7 @@ class Optimizer {
         return empty($candidates) ? $current_size : max(array_map('intval', $candidates));
     }
 
-    public function optimize_attachment(int $attachment_id): array {
+    public function optimize_attachment(int $attachment_id, ?array $meta = null): array {
         $file = get_attached_file($attachment_id);
         if (!$file || !file_exists($file)) {
             return [
@@ -329,8 +347,11 @@ class Optimizer {
         }
 
         $base_dir = dirname($file);
-        $meta = wp_get_attachment_metadata($attachment_id);
+        if (null === $meta) {
+            $meta = wp_get_attachment_metadata($attachment_id);
+        }
         $has_meta_updates = false;
+        $delete_original = (bool) Settings::instance()->get('wso_delete_original', 0);
 
         // Process thumbnail sub-sizes
         if (!empty($meta['sizes']) && is_array($meta['sizes'])) {
@@ -341,14 +362,22 @@ class Optimizer {
                         // Thumbnails are never watermarked (avoids overflow + double-apply).
                         $sub_res = $this->optimize_file($sub_file, $attachment_id, false);
                         // If converted to avif/webp, update metadata filename
+                        $converted_sub = '';
                         if (!empty($sub_res['formats']['avif']) && file_exists($sub_res['formats']['avif'])) {
-                            $meta['sizes'][$size_key]['file'] = basename($sub_res['formats']['avif']);
+                            $converted_sub = $sub_res['formats']['avif'];
+                            $meta['sizes'][$size_key]['file'] = basename($converted_sub);
                             $meta['sizes'][$size_key]['mime-type'] = 'image/avif';
                             $has_meta_updates = true;
                         } elseif (!empty($sub_res['formats']['webp']) && file_exists($sub_res['formats']['webp'])) {
-                            $meta['sizes'][$size_key]['file'] = basename($sub_res['formats']['webp']);
+                            $converted_sub = $sub_res['formats']['webp'];
+                            $meta['sizes'][$size_key]['file'] = basename($converted_sub);
                             $meta['sizes'][$size_key]['mime-type'] = 'image/webp';
                             $has_meta_updates = true;
+                        }
+
+                        // Remove original thumbnail file if converted and option enabled
+                        if ($delete_original && !empty($converted_sub) && file_exists($converted_sub) && $converted_sub !== $sub_file) {
+                            @unlink($sub_file);
                         }
                     }
                 }
@@ -385,6 +414,11 @@ class Optimizer {
                 ['%s'],
                 ['%d']
             );
+
+            // Remove original main file if converted and option enabled
+            if ($delete_original && file_exists($converted_file) && $converted_file !== $file) {
+                @unlink($file);
+            }
         }
 
         if ($has_meta_updates && is_array($meta)) {
@@ -393,6 +427,9 @@ class Optimizer {
 
         $result['optimized_at'] = current_time('mysql');
         $result['optimization_status'] = $result['status'];
+        if (is_array($meta)) {
+            $result['metadata'] = $meta;
+        }
 
         update_post_meta($attachment_id, '_wso_optimized', 1);
         update_post_meta($attachment_id, '_wso_opt_data', $result);
