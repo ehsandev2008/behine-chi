@@ -67,13 +67,10 @@ class Media_Library {
             return $metadata;
         }
 
-        $res = Optimizer::instance()->optimize_attachment($attachment_id, $metadata);
+        $res = Optimizer::instance()->optimize_attachment($attachment_id);
         if ($res['status'] === \WSO\Tools\Logger::STATUS_SUCCESS) {
-            if (!empty($res['metadata']) && is_array($res['metadata'])) {
-                return $res['metadata'];
-            }
             $updated_meta = wp_get_attachment_metadata($attachment_id);
-            if (is_array($updated_meta) && !empty($updated_meta)) {
+            if (is_array($updated_meta)) {
                 return $updated_meta;
             }
         }
@@ -322,32 +319,6 @@ class Media_Library {
 
         $restored = Backup_Manager::instance()->restore($file);
         if ($restored) {
-            $restored_file = is_string($restored) ? $restored : $file;
-            $upload_dir = wp_upload_dir();
-            $rel_path = ltrim(str_replace($upload_dir['basedir'], '', $restored_file), '/\\');
-
-            update_post_meta($attachment_id, '_wp_attached_file', $rel_path);
-
-            $filetype = wp_check_filetype($restored_file);
-            if (!empty($filetype['type'])) {
-                global $wpdb;
-                $wpdb->update(
-                    $wpdb->posts,
-                    ['post_mime_type' => $filetype['type']],
-                    ['ID' => $attachment_id],
-                    ['%s'],
-                    ['%d']
-                );
-            }
-
-            if (function_exists('wp_generate_attachment_metadata')) {
-                require_once ABSPATH . 'wp-admin/includes/image.php';
-                $meta = wp_generate_attachment_metadata($attachment_id, $restored_file);
-                if (is_array($meta)) {
-                    wp_update_attachment_metadata($attachment_id, $meta);
-                }
-            }
-
             delete_post_meta($attachment_id, '_wso_optimized');
             delete_post_meta($attachment_id, '_wso_opt_data');
             delete_post_meta($attachment_id, \WSO\Engine\Watermark::META_KEY);
