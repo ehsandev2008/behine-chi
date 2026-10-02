@@ -93,7 +93,6 @@ class Ajax_Handler {
             'wso_optimize_svg',
             'wso_auto_optimize',
             'wso_dark_mode',
-            'wso_recompress_webp',
             'wso_watermark_enabled',
             'wso_auto_alt_enabled',
             'wso_auto_alt_overwrite'
@@ -109,7 +108,6 @@ class Ajax_Handler {
             'wso_max_size',
             'wso_max_width',
             'wso_max_height',
-            'wso_webp_min_size_kb',
             'wso_watermark_opacity',
             'wso_watermark_margin',
             'wso_watermark_image'
@@ -118,9 +116,7 @@ class Ajax_Handler {
         foreach ($number_fields as $field) {
             if (isset($form_data[$field])) {
                 $val = (int) $form_data[$field];
-                if ('wso_webp_min_size_kb' === $field) {
-                    $val = max(0, min(51200, $val));
-                } elseif ('wso_watermark_opacity' === $field) {
+                if ('wso_watermark_opacity' === $field) {
                     $val = max(1, min(100, $val));
                 } elseif ('wso_watermark_margin' === $field) {
                     $val = max(0, min(200, $val));

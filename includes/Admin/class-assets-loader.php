@@ -81,7 +81,7 @@ class Assets_Loader {
         wp_enqueue_script(
             'wso-bulk-optimizer-js',
             WSO_URL . 'assets/js/bulk-optimizer.js',
-            ['jquery', 'wso-admin-js'],
+            ['jquery'],
             WSO_VERSION,
             true
         );
@@ -89,7 +89,7 @@ class Assets_Loader {
         wp_enqueue_script(
             'wso-scanner-js',
             WSO_URL . 'assets/js/scanner.js',
-            ['jquery', 'wso-admin-js'],
+            ['jquery'],
             WSO_VERSION,
             true
         );
@@ -97,7 +97,7 @@ class Assets_Loader {
         wp_enqueue_script(
             'wso-media-js',
             WSO_URL . 'assets/js/media.js',
-            ['jquery', 'wso-admin-js'],
+            ['jquery'],
             WSO_VERSION,
             true
         );
@@ -108,7 +108,7 @@ class Assets_Loader {
             wp_enqueue_script(
                 'wso-watermark-alt-js',
                 WSO_URL . 'assets/js/watermark-alt.js',
-                ['jquery', 'wso-admin-js'],
+                ['jquery'],
                 WSO_VERSION,
                 true
             );

@@ -70,9 +70,8 @@ class Async_Processor {
             wp_send_json_error(['message' => 'افزونه غیرفعال است و امکان ساخت صف وجود ندارد.'], 400);
         }
 
-        $force = !empty($_POST['force']);
         $manager = Queue_Manager::instance();
-        $new_count = $manager->populate_media_library_queue($force);
+        $new_count = $manager->populate_media_library_queue();
         $stats = $manager->get_stats();
         $total_pending = $stats['pending'] ?? 0;
 
@@ -130,14 +129,7 @@ class Async_Processor {
             $status = $res['status'] ?? Logger::STATUS_ERROR;
             $msg    = $res['message'] ?? '';
 
-            // Map Logger status constants to queue statuses
-            $queue_status = match ($status) {
-                Logger::STATUS_SUCCESS => 'completed',
-                Logger::STATUS_SKIPPED => 'skipped',
-                default                => 'failed',
-            };
-
-            $manager->update_status($item['id'], $queue_status, $msg);
+            $manager->update_status($item['id'], $status, $msg);
             $processed_results[] = [
                 'id'      => $item['id'],
                 'file'    => basename($file_path),

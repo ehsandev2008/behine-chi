@@ -22,12 +22,9 @@
 
         addLogEntry('در حال ایجاد صف تصاویر جهت بهینه‌سازی...', 'info');
 
-        var forceReoptimize = $('#wso-force-reoptimize').is(':checked') ? 1 : 0;
-
         $.post(wsoData.ajax_url, {
             action: 'wso_build_queue',
-            nonce: wsoData.nonce,
-            force: forceReoptimize
+            nonce: wsoData.nonce
         }).done(function (response) {
             if (response.success) {
                 totalItems = response.data.count;
@@ -121,21 +118,9 @@
         $('#wso-progress-percent').text('٪' + pct);
     }
 
-    function escapeHtml(str) {
-        if (str === null || str === undefined) return '';
-        return String(str)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#039;');
-    }
-
     function addLogEntry(msg, type) {
         var $feed = $('#wso-log-feed');
-        var safeType = escapeHtml(type || 'info');
-        var safeMsg = escapeHtml(msg);
-        var entry = '<div class="wso-log-entry ' + safeType + '">[' + new Date().toLocaleTimeString() + '] ' + safeMsg + '</div>';
+        var entry = '<div class="wso-log-entry ' + (type || 'info') + '">[' + new Date().toLocaleTimeString() + '] ' + msg + '</div>';
         $feed.append(entry);
         $feed.scrollTop($feed[0].scrollHeight);
     }

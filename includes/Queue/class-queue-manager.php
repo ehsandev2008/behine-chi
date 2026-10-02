@@ -45,7 +45,7 @@ class Queue_Manager {
      *
      * @return int Number of newly items queued.
      */
-    public function populate_media_library_queue(bool $force = false): int {
+    public function populate_media_library_queue(): int {
         global $wpdb;
         $db = Database::instance();
         $table = $db->queue_table;
@@ -58,26 +58,12 @@ class Queue_Manager {
             'fields'         => 'ids',
         ];
 
-        if (!$force) {
-            $args['meta_query'] = [
-                [
-                    'key'     => '_wso_optimized',
-                    'compare' => 'NOT EXISTS',
-                ],
-            ];
-        }
-
-        if ($force) {
-            // When forcing re-optimization, reset all non-processing items back to pending
-            $wpdb->query("UPDATE {$table} SET status = 'pending', error_message = NULL WHERE status != 'processing'");
-        }
-
         $query = new \WP_Query($args);
         $attachment_ids = $query->posts;
 
-        // Get currently active attachment IDs in the queue to avoid duplication
+        // Get currently pending attachment IDs in the queue to avoid duplication
         $existing_queued = $wpdb->get_col(
-            "SELECT attachment_id FROM {$table} WHERE attachment_id > 0 AND status IN ('pending', 'processing')"
+            "SELECT attachment_id FROM {$table} WHERE attachment_id > 0 AND status = 'pending'"
         );
         $existing_map = array_flip($existing_queued ?: []);
 
@@ -279,13 +265,8 @@ class Queue_Manager {
             foreach ($results as $row) {
                 $status = $row['status'];
                 $count  = (int) $row['count'];
-                if ($status === 'success') {
-                    $status = 'completed';
-                } elseif ($status === 'error') {
-                    $status = 'failed';
-                }
                 if (isset($stats[$status])) {
-                    $stats[$status] += $count;
+                    $stats[$status] = $count;
                 }
                 $stats['total'] += $count;
             }
