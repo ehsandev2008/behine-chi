@@ -112,6 +112,13 @@ class Assets_Loader {
                 WSO_VERSION,
                 true
             );
+            wp_enqueue_script(
+                'wso-drag-drop-js',
+                WSO_URL . 'assets/js/drag-drop.js',
+                ['jquery'],
+                WSO_VERSION,
+                true
+            );
         }
 
         // Localize script data in 100% Persian

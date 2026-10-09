@@ -153,6 +153,58 @@ class Backup_Manager {
             @unlink($avif);
         }
 
+        // Determine the restored file's extension and update WordPress metadata
+        $ext = strtolower(pathinfo($file_path, PATHINFO_EXTENSION));
+        $attachment_id = 0;
+
+        // Find attachment ID from file path
+        global $wpdb;
+        $upload_dir = wp_upload_dir();
+        $relative_path = ltrim(str_replace($upload_dir['basedir'], '', $file_path), '/\\');
+        
+        if (!empty($relative_path)) {
+            $attachment_id = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_wp_attached_file' AND meta_value = %s LIMIT 1",
+                $relative_path
+            ));
+        }
+
+        if ($attachment_id > 0) {
+            // Map extension to MIME type
+            $mime_map = [
+                'jpg'  => 'image/jpeg',
+                'jpeg' => 'image/jpeg',
+                'png'  => 'image/png',
+                'webp' => 'image/webp',
+                'avif' => 'image/avif',
+                'svg'  => 'image/svg+xml',
+            ];
+            $new_mime = $mime_map[$ext] ?? 'image/jpeg';
+
+            // Update post MIME type
+            $wpdb->update(
+                $wpdb->posts,
+                ['post_mime_type' => $new_mime],
+                ['ID' => $attachment_id],
+                ['%s'],
+                ['%d']
+            );
+
+            // Update attachment metadata file reference
+            $meta = wp_get_attachment_metadata($attachment_id);
+            if (is_array($meta)) {
+                $meta['file'] = $relative_path;
+                wp_update_attachment_metadata($attachment_id, $meta);
+            }
+
+            // Clear optimization flags so the image can be re-optimized
+            delete_post_meta($attachment_id, '_wso_optimized');
+            delete_post_meta($attachment_id, '_wso_opt_data');
+            delete_post_meta($attachment_id, '_wso_wm_hash');
+        }
+
+        delete_transient('wso_upload_dir_scan');
+
         return (bool) $restored;
     }
 
@@ -194,12 +246,44 @@ class Backup_Manager {
 
                     if (file_exists($webp)) @unlink($webp);
                     if (file_exists($avif)) @unlink($avif);
+
+                    // Update WordPress attachment metadata
+                    $ext = strtolower(pathinfo($original_target, PATHINFO_EXTENSION));
+                    $attachment_id = (int) $wpdb->get_var($wpdb->prepare(
+                        "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_wp_attached_file' AND meta_value = %s LIMIT 1",
+                        $relative
+                    ));
+
+                    if ($attachment_id > 0) {
+                        $mime_map = [
+                            'jpg'  => 'image/jpeg',
+                            'jpeg' => 'image/jpeg',
+                            'png'  => 'image/png',
+                            'webp' => 'image/webp',
+                            'avif' => 'image/avif',
+                            'svg'  => 'image/svg+xml',
+                        ];
+                        $new_mime = $mime_map[$ext] ?? 'image/jpeg';
+
+                        $wpdb->update(
+                            $wpdb->posts,
+                            ['post_mime_type' => $new_mime],
+                            ['ID' => $attachment_id],
+                            ['%s'],
+                            ['%d']
+                        );
+
+                        $meta = wp_get_attachment_metadata($attachment_id);
+                        if (is_array($meta)) {
+                            $meta['file'] = $relative;
+                            wp_update_attachment_metadata($attachment_id, $meta);
+                        }
+                    }
                 }
             }
         }
 
         // Clean attachment postmeta
-        global $wpdb;
         $wpdb->query("DELETE FROM {$wpdb->postmeta} WHERE meta_key IN ('_wso_optimized', '_wso_opt_data', '_wso_wm_hash')");
 
         return $count;

@@ -89,6 +89,8 @@ class Admin_Menu {
         
         $bg_light   = $settings->get('wso_color_bg', '#f8fafc');
         $card_light = $settings->get('wso_color_card', '#ffffff');
+        $bg_dark    = $settings->get('wso_color_bg_dark', '#0f172a');
+        $card_dark  = $settings->get('wso_color_card_dark', '#1e293b');
         
         $radius     = $settings->get('wso_border_radius', '8px');
         $shadow     = $settings->get('wso_shadow', '0 1px 3px rgba(0,0,0,0.1)');
@@ -96,8 +98,8 @@ class Admin_Menu {
         $spacing    = $settings->get('wso_spacing', '20px');
         $active_font= $settings->get('wso_admin_font', 'Vazir');
 
-        echo "<!-- WebP Smart Optimizer Customizer Styles -->\n<style type='text/css'>\n";
-        echo "body .wso-wrap {\n";
+        echo "<!-- WebP Smart Optimizer Customizer Styles -->\n<style type='text/css' id='wso-customizer-light'>\n";
+        echo "#wso-app {\n";
         echo "  --wso-primary: " . esc_attr($primary) . ";\n";
         echo "  --wso-primary-hover: " . esc_attr($primary_h) . ";\n";
         echo "  --wso-secondary: " . esc_attr($secondary) . ";\n";
@@ -108,11 +110,22 @@ class Admin_Menu {
         echo "  --wso-bg-main: " . esc_attr($bg_light) . ";\n";
         echo "  --wso-bg-card: " . esc_attr($card_light) . ";\n";
         echo "  --wso-bg-header: " . esc_attr($card_light) . ";\n";
+        echo "  --wso-bg-main-dark: " . esc_attr($bg_dark) . ";\n";
+        echo "  --wso-bg-card-dark: " . esc_attr($card_dark) . ";\n";
         echo "  --wso-radius: " . esc_attr($radius) . ";\n";
         echo "  --wso-card-shadow: " . esc_attr($shadow) . ";\n";
         echo "  --wso-font-size: " . esc_attr($font_size) . ";\n";
         echo "  --wso-spacing: " . esc_attr($spacing) . ";\n";
         echo "  --wso-font-family: '" . esc_attr($active_font) . "', -apple-system, BlinkMacSystemFont, sans-serif;\n";
+        echo "}\n";
+        echo "</style>\n";
+
+        // Dark mode customizer styles - same element, higher specificity wins
+        echo "<style type='text/css' id='wso-dark-mode-customizer'>\n";
+        echo "#wso-app.wso-dark-mode {\n";
+        echo "  --wso-bg-main: " . esc_attr($bg_dark) . ";\n";
+        echo "  --wso-bg-card: " . esc_attr($card_dark) . ";\n";
+        echo "  --wso-bg-header: " . esc_attr($card_dark) . ";\n";
         echo "}\n";
         echo "</style>\n";
     }
@@ -126,12 +139,12 @@ class Admin_Menu {
         $settings = Settings::instance();
         $stats    = Dashboard_Widgets::get_stats();
         $driver   = Optimizer::instance()->get_driver();
-        $is_dark  = false;
+        $is_dark  = (bool) $settings->get('wso_dark_mode', 0);
         $enabled  = (bool) $settings->get('wso_enable', 1);
 
         $available_fonts = Font_Manager::instance()->get_available_fonts();
         ?>
-        <div class="wso-wrap" id="wso-app" dir="rtl">
+        <div class="wso-wrap<?php echo $is_dark ? ' wso-dark-mode' : ''; ?>" id="wso-app" dir="rtl">
             
             <!-- STICKY TOP HEADER -->
             <header class="wso-header">
@@ -150,6 +163,12 @@ class Admin_Menu {
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
                         <input type="text" id="wso-settings-search" placeholder="جستجوی تنظیمات..." />
                     </div>
+
+                    <!-- Dark Mode Toggle -->
+                    <button type="button" class="wso-btn-icon-toggle<?php echo $is_dark ? ' active' : ''; ?>" id="wso-btn-dark-mode" title="تغییر حالت تاریک/روشن">
+                        <svg class="wso-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+                        <svg class="wso-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+                    </button>
 
                     <!-- Notification bell with badge -->
                     <button type="button" class="wso-btn-icon-toggle wso-nav-badge-trigger" id="wso-btn-open-notify" title="اعلان‌ها" onclick="jQuery('a[data-tab=tab-notifications]').click();">
@@ -173,7 +192,7 @@ class Admin_Menu {
             <?php endif; ?>
 
             <form id="wso-settings-form" method="post">
-                <input type="hidden" name="wso_dark_mode" id="wso_dark_mode_input" value="0" />
+                <input type="hidden" name="wso_dark_mode" id="wso_dark_mode_input" value="<?php echo $is_dark ? '1' : '0'; ?>" />
 
                 <div class="wso-container">
                     
@@ -243,6 +262,10 @@ class Admin_Menu {
                             <a href="#tab-import-export" class="wso-nav-item" data-tab="tab-import-export">
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                                 <span>انتقال تنظیمات</span>
+                            </a>
+                            <a href="#tab-drag-drop" class="wso-nav-item" data-tab="tab-drag-drop">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                                <span>آپلود سریع</span>
                             </a>
                             <a href="#tab-docs" class="wso-nav-item" data-tab="tab-docs">
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
@@ -493,6 +516,77 @@ class Admin_Menu {
                                             <small>در صورت فعال‌سازی، بعد از تولید فایل نسل جدید، اصل تصاویر JPG/PNG برای بهینه‌سازی فضا حذف خواهند شد.</small>
                                         </span>
                                     </label>
+                                </div>
+
+                                <div class="wso-field-row wso-mt-4">
+                                    <label for="wso_webp_recompress_threshold"><strong>آستانه فشرده‌سازی مجدد WebP (مگابایت)</strong></label>
+                                    <input type="number" id="wso_webp_recompress_threshold" name="wso_webp_recompress_threshold" value="<?php echo esc_attr($settings->get('wso_webp_recompress_threshold', 0)); ?>" min="0" max="50" class="wso-input-small" />
+                                    <p class="wso-field-help">تصاویر WebP کوچک‌تر از این مقدار مجدداً فشرده نمی‌شوند. مقدار 0 یعنی همیشه فشرده‌سازی مجدد انجام شود.</p>
+                                </div>
+
+                                <hr class="wso-divider" />
+
+                                <h3 class="wso-card-title">تنظیمات پیشرفته</h3>
+
+                                <div class="wso-form-group wso-mt-4">
+                                    <label class="wso-toggle-label">
+                                        <input type="checkbox" name="wso_preload_webp" value="1" <?php checked(1, $settings->get('wso_preload_webp', 0)); ?>>
+                                        <span class="wso-toggle-slider"></span>
+                                        <span class="wso-toggle-text">
+                                            <strong>پیش‌بارگذاری (Preload) تصاویر WebP</strong>
+                                            <small>اضافه کردن لینک preload به head صفحه برای بارگذاری سریع‌تر تصاویر بهینه‌شده.</small>
+                                        </span>
+                                    </label>
+                                </div>
+
+                                <div class="wso-form-group wso-mt-4">
+                                    <label class="wso-toggle-label">
+                                        <input type="checkbox" name="wso_smart_lazy_load" value="1" <?php checked(1, $settings->get('wso_smart_lazy_load', 0)); ?>>
+                                        <span class="wso-toggle-slider"></span>
+                                        <span class="wso-toggle-text">
+                                            <strong>بارگذاری تنبل هوشمند</strong>
+                                            <small>فقط تصاویر بهینه‌نشده بارگذاری تنبل می‌شوند. تصاویر بهینه‌شده بدون تاخیر لود می‌شوند.</small>
+                                        </span>
+                                    </label>
+                                </div>
+
+                                <div class="wso-form-group wso-mt-4">
+                                    <label class="wso-toggle-label">
+                                        <input type="checkbox" name="wso_auto_scan" value="1" <?php checked(1, $settings->get('wso_auto_scan', 0)); ?>>
+                                        <span class="wso-toggle-slider"></span>
+                                        <span class="wso-toggle-text">
+                                            <strong>اسکن خودکار روزانه</strong>
+                                            <small>اسکن و بهینه‌سازی خودکار تصاویر جدید هر روز توسط WP-Cron.</small>
+                                        </span>
+                                    </label>
+                                </div>
+
+                                <div class="wso-form-group wso-mt-4">
+                                    <label class="wso-toggle-label">
+                                        <input type="checkbox" name="wso_on_the_fly" value="1" <?php checked(1, $settings->get('wso_on_the_fly', 0)); ?>>
+                                        <span class="wso-toggle-slider"></span>
+                                        <span class="wso-toggle-text">
+                                            <strong>تبدیل در زمان نمایش (On-the-fly)</strong>
+                                            <small>سرو کردن تصاویر WebP/AVIF به مرورگرهای سازگار بدون تغییر فایل‌های اصلی.</small>
+                                        </span>
+                                    </label>
+                                </div>
+
+                                <div class="wso-form-group wso-mt-4">
+                                    <label class="wso-toggle-label">
+                                        <input type="checkbox" name="wso_auto_alert" value="1" <?php checked(1, $settings->get('wso_auto_alert', 0)); ?>>
+                                        <span class="wso-toggle-slider"></span>
+                                        <span class="wso-toggle-text">
+                                            <strong>هشدار خودکار</strong>
+                                            <small>بررسی روزانه فضای دیسک، حافظه و وضعیت بکاپ‌ها و ارسال اعلان در صورت نیاز.</small>
+                                        </span>
+                                    </label>
+                                </div>
+
+                                <div class="wso-field-row wso-mt-4">
+                                    <label for="wso_backup_alert_threshold"><strong>آستانه هشدار حجم بکاپ (مگابایت)</strong></label>
+                                    <input type="number" id="wso_backup_alert_threshold" name="wso_backup_alert_threshold" value="<?php echo esc_attr($settings->get('wso_backup_alert_threshold', 500)); ?>" min="0" max="10000" class="wso-input-small" />
+                                    <p class="wso-field-help">اگر حجم پوشه بکاپ از این مقدار بیشتر شود، هشدار ارسال می‌شود. 0 یعنی غیرفعال.</p>
                                 </div>
                             </div>
                         </div>
@@ -922,6 +1016,25 @@ class Admin_Menu {
                                 <button type="button" class="wso-btn wso-btn-danger" id="wso-btn-reset-settings">
                                     بازنشانی کل تنظیمات افزونه
                                 </button>
+                            </div>
+                        </div>
+
+                        <!-- TAB 16: DRAG & DROP UPLOAD -->
+                        <div id="tab-drag-drop" class="wso-tab-pane">
+                            <h2 class="wso-pane-title">آپلود سریع تصاویر با کشیدن و رها کردن</h2>
+
+                            <div class="wso-card">
+                                <p>تصاویر خود را با کشیدن و رها کردن در این بخش آپلود کنید. تصاویر به صورت خودکار بهینه‌سازی می‌شوند.</p>
+
+                                <div id="wso-drag-drop-zone" class="wso-drag-drop-zone" style="border: 2px dashed var(--wso-border-color); border-radius: 12px; padding: 40px 20px; text-align: center; cursor: pointer; transition: all 0.3s ease; margin: 20px 0;">
+                                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin: 0 auto 15px; display: block; color: var(--wso-text-muted);"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                                    <p style="margin: 0; font-size: 14px; color: var(--wso-text-muted);">تصاویر را اینجا بکشید و رها کنید یا کلیک کنید</p>
+                                    <p style="margin: 8px 0 0 0; font-size: 12px; color: var(--wso-text-muted);">فرمت‌های مجاز: JPEG, PNG, WebP, AVIF, SVG</p>
+                                    <input type="file" id="wso-drag-drop-input" accept="image/*" multiple style="display: none;" />
+                                </div>
+
+                                <div id="wso-upload-progress" style="margin-top: 15px;"></div>
+                                <div id="wso-upload-results" style="margin-top: 15px;"></div>
                             </div>
                         </div>
 

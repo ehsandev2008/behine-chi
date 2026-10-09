@@ -61,14 +61,35 @@ class Cache_Manager {
 
         foreach ($iterator as $item) {
             if ($item->isFile()) {
+                $pathname = $item->getPathname();
                 $ext = strtolower($item->getExtension());
+                
+                // Skip files in backup directory
+                if (str_contains($pathname, '/wso-backups/')) {
+                    continue;
+                }
+                
+                // Only delete WebP/AVIF files that are NOT the main attached file
+                // (i.e., they are generated variants, not originals)
                 if (in_array($ext, ['webp', 'avif'], true)) {
-                    if (@unlink($item->getPathname())) {
-                        $count++;
+                    // Check if this file is the main attachment file
+                    $relative_path = ltrim(str_replace($upload_dir, '', $pathname), '/\\');
+                    global $wpdb;
+                    $is_main = $wpdb->get_var($wpdb->prepare(
+                        "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = '_wp_attached_file' AND meta_value = %s",
+                        $relative_path
+                    ));
+                    
+                    if (!$is_main) {
+                        if (@unlink($pathname)) {
+                            $count++;
+                        }
                     }
                 }
             }
         }
+
+        delete_transient('wso_upload_dir_scan');
 
         return $count;
     }

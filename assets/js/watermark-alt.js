@@ -44,7 +44,10 @@
         var $btn = $('#wso-fill-missing-alts');
         if (!$btn.length) return;
 
-        var offset = 0;
+        // NOTE: server query returns only images WITHOUT alt, so filled
+        // items drop out of the result set. Offset must stay 0, otherwise
+        // we skip over unprocessed images. We track total separately.
+        var totalFilled = 0;
 
         $btn.on('click', function (e) {
             e.preventDefault();
@@ -56,18 +59,20 @@
                 action: 'wso_fill_missing_alts',
                 nonce: wsoData.nonce,
                 limit: 20,
-                offset: offset
+                offset: 0
             }).done(function (res) {
                 $btn.prop('disabled', false).text('تکمیل Alt تصاویر بدون Alt (۲۰ تایی)');
                 if (res.success) {
-                    offset += res.data.processed;
-                    var msg = res.data.message + ' (مجموع پردازش‌شده در این نشست: ' + offset + ')';
+                    totalFilled += (res.data.filled || 0);
+                    var msg = res.data.message + ' (مجموع تکمیل‌شده در این نشست: ' + totalFilled + ')';
                     $status.text(msg);
                     if (window.wsoToast) {
                         window.wsoToast(res.data.message, 'success');
                     }
-                    if (res.data.processed === 0) {
-                        $status.text('همه تصاویر موجود دارای Alt هستند.');
+                    if (res.data.processed === 0 || res.data.has_more === false) {
+                        if (res.data.processed === 0) {
+                            $status.text('همه تصاویر موجود دارای Alt هستند.');
+                        }
                     }
                 } else {
                     $status.text(res.data.message || 'خطا در تکمیل Alt.');

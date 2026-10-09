@@ -3,7 +3,7 @@
 Plugin Name: بهینه چی | افزونه حرفه‌ای بهینه‌سازی تصاویر وردپرس
 Plugin URI: http://sir-developer.ir/
 Description: افزونه حرفهای بهینهسازی تصاویر وردپرس برای کاهش حجم تصاویر، افزایش سرعت سایت و پشتیبانی از فرمتهای مدرن WebP و AVIF.
-Version: 1.0.0
+Version: 2.1.0
 Author: Ehsan.dev
 Author URI: http://sir-developer.ir/
 License: GPLv2 or later
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Plugin Constants
-define('WSO_VERSION', '2.0.0');
+define('WSO_VERSION', '2.1.0');
 define('WSO_FILE', __FILE__);
 define('WSO_PATH', plugin_dir_path(__FILE__));
 define('WSO_URL', plugin_dir_url(__FILE__));
@@ -84,38 +84,12 @@ if (!function_exists('wso_max_size')) {
 
 /* ==========================================================================
    WORDPRESS INTEGRATION HOOKS (PRESERVING BACKWARD COMPATIBILITY)
+   NOTE: Upload optimization runs via wp_generate_attachment_metadata
+   (see WSO\Admin\Media_Library::save_upload_optimization_meta) so the
+   main file AND all thumbnails are processed exactly once. A previous
+   wp_handle_upload filter caused double optimization and wrong
+   before/after size calculation, so it was removed.
    ========================================================================== */
-
-/**
- * Handle upload conversion before WordPress finishes processing.
- */
-add_filter('wp_handle_upload', function ($upload) {
-    if (!wso_enabled()) {
-        return $upload;
-    }
-
-    $file = $upload['file'] ?? null;
-    if (!$file || !file_exists($file)) {
-        return $upload;
-    }
-
-    // Auto-optimize upload
-    $result = WSO\Engine\Optimizer::instance()->optimize_file($file);
-
-    if (!empty($result['formats']['avif']) && file_exists($result['formats']['avif'])) {
-        $avif_file = $result['formats']['avif'];
-        $upload['file'] = $avif_file;
-        $upload['url']  = str_replace(basename($upload['url']), basename($avif_file), $upload['url']);
-        $upload['type'] = 'image/avif';
-    } elseif (!empty($result['formats']['webp']) && file_exists($result['formats']['webp'])) {
-        $webp_file = $result['formats']['webp'];
-        $upload['file'] = $webp_file;
-        $upload['url']  = str_replace(basename($upload['url']), basename($webp_file), $upload['url']);
-        $upload['type'] = 'image/webp';
-    }
-
-    return $upload;
-}, 20);
 
 /**
  * Force WordPress Image Editor to output WebP or AVIF format when enabled.

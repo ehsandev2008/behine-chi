@@ -54,6 +54,23 @@ class Ajax_Handler {
         // Health Check routes
         add_action('wp_ajax_wso_run_health_check', [$this, 'handle_run_health_check']);
         add_action('wp_ajax_wso_run_health_fix', [$this, 'handle_run_health_fix']);
+
+        // Progress chart data
+        add_action('wp_ajax_wso_get_chart_data', [$this, 'handle_get_chart_data']);
+        add_action('wp_ajax_wso_get_engine_comparison', [$this, 'handle_get_engine_comparison']);
+
+        // Unused files
+        add_action('wp_ajax_wso_find_unused', [$this, 'handle_find_unused']);
+        add_action('wp_ajax_wso_delete_unused', [$this, 'handle_delete_unused']);
+
+        // PDF Report
+        add_action('wp_ajax_wso_download_report', [$this, 'handle_download_report']);
+
+        // Format conversion
+        add_action('wp_ajax_wso_convert_format', [$this, 'handle_convert_format']);
+
+        // Auto alerts
+        add_action('wp_ajax_wso_run_auto_alert', [$this, 'handle_run_auto_alert']);
     }
 
     /**
@@ -92,15 +109,25 @@ class Ajax_Handler {
             'wso_backup_originals',
             'wso_optimize_svg',
             'wso_auto_optimize',
-            'wso_dark_mode',
             'wso_watermark_enabled',
             'wso_auto_alt_enabled',
-            'wso_auto_alt_overwrite'
+            'wso_auto_alt_overwrite',
+            'wso_preload_webp',
+            'wso_smart_lazy_load',
+            'wso_auto_scan',
+            'wso_on_the_fly',
+            'wso_auto_alert'
         ];
 
         foreach ($checkbox_fields as $field) {
             $val = isset($form_data[$field]) ? 1 : 0;
             $settings_obj->set($field, $val);
+        }
+
+        // Dark mode comes from hidden input (toggled by JS), not a checkbox.
+        // Read its actual value so save persists the toggle state.
+        if (isset($form_data['wso_dark_mode'])) {
+            $settings_obj->set('wso_dark_mode', (int) $form_data['wso_dark_mode'] ? 1 : 0);
         }
 
         $number_fields = [
@@ -110,7 +137,9 @@ class Ajax_Handler {
             'wso_max_height',
             'wso_watermark_opacity',
             'wso_watermark_margin',
-            'wso_watermark_image'
+            'wso_watermark_image',
+            'wso_webp_recompress_threshold',
+            'wso_backup_alert_threshold'
         ];
 
         foreach ($number_fields as $field) {
@@ -120,6 +149,10 @@ class Ajax_Handler {
                     $val = max(1, min(100, $val));
                 } elseif ('wso_watermark_margin' === $field) {
                     $val = max(0, min(200, $val));
+                } elseif ('wso_webp_recompress_threshold' === $field) {
+                    $val = max(0, min(50, $val));
+                } elseif ('wso_backup_alert_threshold' === $field) {
+                    $val = max(0, min(10000, $val));
                 } elseif ('wso_watermark_image' === $field) {
                     $val = max(0, $val);
                     // Validate that the ID belongs to a real image attachment.
@@ -162,7 +195,14 @@ class Ajax_Handler {
             'wso_shadow',
             'wso_font_size',
             'wso_spacing',
-            'wso_admin_font'
+            'wso_admin_font',
+            'wso_cloudinary_cloud',
+            'wso_cloudinary_key',
+            'wso_cloudinary_secret',
+            'wso_slack_webhook',
+            'wso_telegram_token',
+            'wso_telegram_chat',
+            'wso_api_key'
         ];
 
         foreach ($text_fields as $field) {
@@ -319,5 +359,80 @@ class Ajax_Handler {
         } else {
             wp_send_json_error(['message' => 'عملیات تعمیر با خطا مواجه شد.']);
         }
+    }
+
+    /**
+     * AJAX handler for chart data.
+     */
+    public function handle_get_chart_data(): void {
+        $this->verify_security();
+        $period = sanitize_key($_POST['period'] ?? 'month');
+        $chart = \WSO\Tools\Progress_Chart::instance();
+        $data = $chart->get_chart_data($period);
+        wp_send_json_success($data);
+    }
+
+    /**
+     * AJAX handler for engine comparison.
+     */
+    public function handle_get_engine_comparison(): void {
+        $this->verify_security();
+        $chart = \WSO\Tools\Progress_Chart::instance();
+        $data = $chart->get_engine_comparison();
+        wp_send_json_success($data);
+    }
+
+    /**
+     * AJAX handler for finding unused images.
+     */
+    public function handle_find_unused(): void {
+        $this->verify_security();
+        $limit = max(1, min(100, (int) ($_POST['limit'] ?? 50)));
+        $cleaner = \WSO\Tools\Unused_Cleaner::instance();
+        $unused = $cleaner->find_unused($limit);
+        wp_send_json_success(['unused' => $unused, 'count' => count($unused)]);
+    }
+
+    /**
+     * AJAX handler for deleting unused images.
+     */
+    public function handle_delete_unused(): void {
+        $this->verify_security();
+        $ids = array_map('intval', $_POST['ids'] ?? []);
+        $cleaner = \WSO\Tools\Unused_Cleaner::instance();
+        $result = $cleaner->delete_unused($ids);
+        wp_send_json_success($result);
+    }
+
+    /**
+     * AJAX handler for downloading PDF report.
+     */
+    public function handle_download_report(): void {
+        $this->verify_security();
+        \WSO\Tools\PDF_Report::instance()->generate();
+    }
+
+    /**
+     * AJAX handler for format conversion.
+     */
+    public function handle_convert_format(): void {
+        $this->verify_security();
+        $attachment_id = (int) ($_POST['attachment_id'] ?? 0);
+        $target_format = sanitize_key($_POST['target_format'] ?? 'webp');
+        $quality = max(1, min(100, (int) ($_POST['quality'] ?? 85)));
+
+        $converter = \WSO\Engine\Format_Converter::instance();
+        $result = $converter->convert_all_thumbnails($attachment_id, $target_format, $quality);
+
+        wp_send_json_success($result);
+    }
+
+    /**
+     * AJAX handler for running auto alerts.
+     */
+    public function handle_run_auto_alert(): void {
+        $this->verify_security();
+        \WSO\Tools\Auto_Alert::instance()->check_and_notify();
+        wp_send_json_success(['message' => 'بررسی هشدارها انجام شد.']);
     }
 }

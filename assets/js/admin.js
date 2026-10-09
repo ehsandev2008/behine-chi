@@ -14,6 +14,7 @@
         initFontPreview();
         initHealthCheck();
         initNotificationsCenter();
+        initDarkMode();
         
         // Expose helper functions globally
         window.wsoToast = showToast;
@@ -22,6 +23,13 @@
         // Load initial notifications counts
         loadNotifications();
     });
+
+    // HTML escape helper for XSS prevention
+    function escHtml(str) {
+        return String(str).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[c];
+        });
+    }
 
     // Custom Modal Confirm overlay dialog replacement
     function showConfirm(title, message, callback) {
@@ -82,6 +90,45 @@
                 $toast.remove();
             }, 300);
         }, 4000);
+    }
+
+    // Dark Mode Toggle with server + localStorage persistence
+    function initDarkMode() {
+        var $app = $('#wso-app');
+        var $toggle = $('#wso-btn-dark-mode');
+        var $darkInput = $('#wso_dark_mode_input');
+
+        if (!$app.length || !$toggle.length) {
+            return;
+        }
+
+        function applyDark(isDark) {
+            $app.toggleClass('wso-dark-mode', isDark);
+            $toggle.toggleClass('active', isDark);
+            if ($darkInput.length) {
+                $darkInput.val(isDark ? '1' : '0');
+            }
+            try {
+                localStorage.setItem('wso_dark_mode', isDark ? '1' : '0');
+            } catch (e) {}
+        }
+
+        // Priority: localStorage (instant UX) > server-rendered class
+        var saved = null;
+        try {
+            saved = localStorage.getItem('wso_dark_mode');
+        } catch (e) {}
+        if (saved === '1' || saved === '0') {
+            applyDark(saved === '1');
+        } else {
+            // No local preference yet: use server state and sync toggle UI
+            applyDark($app.hasClass('wso-dark-mode'));
+        }
+
+        $toggle.off('click.wsoDark').on('click.wsoDark', function (e) {
+            e.preventDefault();
+            applyDark(!$app.hasClass('wso-dark-mode'));
+        });
     }
 
     // Dynamic Live Color & Style Customizer preview
@@ -490,15 +537,22 @@
                     if (log.status === 'error') { badgeClass = 'wso-badge-danger'; statusText = 'خطا'; }
                     if (log.status === 'skipped') { badgeClass = 'wso-badge-neutral'; statusText = 'نادیده گرفته‌شده'; }
 
+                    // Escape all dynamic content to prevent XSS
+                    var escId = escHtml(String(log.id));
+                    var escFileName = escHtml(log.file_name);
+                    var escMessage = escHtml(log.message);
+                    var escDate = escHtml(log.created_at);
+                    var escPct = escHtml(String(log.savings_percent || 0));
+
                     html += '<tr>' +
-                        '<td>' + log.id + '</td>' +
-                        '<td><strong>' + log.file_name + '</strong></td>' +
+                        '<td>' + escId + '</td>' +
+                        '<td><strong>' + escFileName + '</strong></td>' +
                         '<td>' + formatBytes(log.original_size) + '</td>' +
                         '<td>' + formatBytes(log.optimized_size) + '</td>' +
-                        '<td>٪' + (log.savings_percent || 0) + '</td>' +
+                        '<td>٪' + escPct + '</td>' +
                         '<td><span class="wso-badge ' + badgeClass + '">' + statusText + '</span></td>' +
-                        '<td>' + log.message + '</td>' +
-                        '<td>' + log.created_at + '</td>' +
+                        '<td>' + escMessage + '</td>' +
+                        '<td>' + escDate + '</td>' +
                         '</tr>';
                 });
                 $body.html(html);

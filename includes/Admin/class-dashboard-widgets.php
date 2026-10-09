@@ -38,6 +38,7 @@ class Dashboard_Widgets {
         $total_images = count($query->posts);
 
         // Sum original and optimized sizes from logs table (deduplicated by file_name)
+        // Use MAX() per file_name to be compatible with ONLY_FULL_GROUP_BY
         $sums = $wpdb->get_row(
             "SELECT 
                 COUNT(*) as count,
@@ -45,7 +46,10 @@ class Dashboard_Widgets {
                 SUM(t.optimized_size) as total_optimized, 
                 SUM(t.saved_bytes) as total_saved 
              FROM (
-                SELECT file_name, original_size, optimized_size, saved_bytes 
+                SELECT file_name, 
+                       MAX(original_size) as original_size, 
+                       MAX(optimized_size) as optimized_size, 
+                       MAX(saved_bytes) as saved_bytes 
                 FROM {$logs_table} 
                 WHERE status = 'success' 
                 GROUP BY file_name
@@ -60,29 +64,45 @@ class Dashboard_Widgets {
 
         $space_saved_pct = $orig_size > 0 ? round(($saved_bytes / $orig_size) * 100, 1) : 0;
 
-        // WebP & AVIF count across upload folder
-        $upload_dir = wp_upload_dir()['basedir'];
-        $webp_count = 0;
-        $avif_count = 0;
-        $cache_bytes= 0;
+        // WebP & AVIF count across upload folder — cached via transient for performance
+        $cache_key = 'wso_upload_dir_scan';
+        $scan_data = get_transient($cache_key);
+        
+        if (false === $scan_data) {
+            $upload_dir = wp_upload_dir()['basedir'];
+            $webp_count = 0;
+            $avif_count = 0;
+            $cache_bytes = 0;
 
-        if (is_dir($upload_dir)) {
-            $iterator = new \RecursiveIteratorIterator(
-                new \RecursiveDirectoryIterator($upload_dir, \RecursiveDirectoryIterator::SKIP_DOTS),
-                \RecursiveIteratorIterator::SELF_FIRST
-            );
-            foreach ($iterator as $file) {
-                if ($file->isFile()) {
-                    $ext = strtolower($file->getExtension());
-                    if ($ext === 'webp') {
-                        $webp_count++;
-                        $cache_bytes += $file->getSize();
-                    } elseif ($ext === 'avif') {
-                        $avif_count++;
-                        $cache_bytes += $file->getSize();
+            if (is_dir($upload_dir)) {
+                $iterator = new \RecursiveIteratorIterator(
+                    new \RecursiveDirectoryIterator($upload_dir, \RecursiveDirectoryIterator::SKIP_DOTS),
+                    \RecursiveIteratorIterator::SELF_FIRST
+                );
+                foreach ($iterator as $file) {
+                    if ($file->isFile()) {
+                        $ext = strtolower($file->getExtension());
+                        if ($ext === 'webp') {
+                            $webp_count++;
+                            $cache_bytes += $file->getSize();
+                        } elseif ($ext === 'avif') {
+                            $avif_count++;
+                            $cache_bytes += $file->getSize();
+                        }
                     }
                 }
             }
+            
+            $scan_data = [
+                'webp_count' => $webp_count,
+                'avif_count' => $avif_count,
+                'cache_bytes' => $cache_bytes,
+            ];
+            set_transient($cache_key, $scan_data, 5 * MINUTE_IN_SECONDS);
+        } else {
+            $webp_count = $scan_data['webp_count'];
+            $avif_count = $scan_data['avif_count'];
+            $cache_bytes = $scan_data['cache_bytes'];
         }
 
         $queue_stats = Queue_Manager::instance()->get_stats();

@@ -61,15 +61,22 @@ class Queue_Manager {
         $query = new \WP_Query($args);
         $attachment_ids = $query->posts;
 
-        // Get currently pending attachment IDs in the queue to avoid duplication
+        // Avoid duplication: skip anything already in queue with active status
+        // (pending/processing) or already completed successfully.
         $existing_queued = $wpdb->get_col(
-            "SELECT attachment_id FROM {$table} WHERE attachment_id > 0 AND status = 'pending'"
+            "SELECT attachment_id FROM {$table} WHERE attachment_id > 0 AND status IN ('pending','processing','completed','success')"
         );
         $existing_map = array_flip($existing_queued ?: []);
 
         $count = 0;
         foreach ($attachment_ids as $id) {
             if (isset($existing_map[$id])) {
+                continue;
+            }
+
+            // Skip already-optimized attachments so re-building the queue
+            // never re-queues processed images.
+            if (get_post_meta($id, '_wso_optimized', true)) {
                 continue;
             }
 
@@ -261,13 +268,23 @@ class Queue_Manager {
             'skipped'    => 0,
         ];
 
+        // Normalize status values — treat unknown statuses as 'failed'
+        $status_map = [
+            'pending'     => 'pending',
+            'processing'  => 'processing',
+            'completed'   => 'completed',
+            'success'     => 'completed',
+            'failed'      => 'failed',
+            'error'       => 'failed',
+            'skipped'     => 'skipped',
+        ];
+
         if ($results) {
             foreach ($results as $row) {
-                $status = $row['status'];
-                $count  = (int) $row['count'];
-                if (isset($stats[$status])) {
-                    $stats[$status] = $count;
-                }
+                $raw_status = $row['status'];
+                $count      = (int) $row['count'];
+                $normalized = $status_map[$raw_status] ?? 'failed';
+                $stats[$normalized] = ($stats[$normalized] ?? 0) + $count;
                 $stats['total'] += $count;
             }
         }

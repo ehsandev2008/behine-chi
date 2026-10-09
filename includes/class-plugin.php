@@ -136,6 +136,18 @@ class Plugin {
                 Tools\Auto_Alt::instance();
             }
 
+            if (class_exists('WSO\\Admin\\Media_Columns')) {
+                Admin\Media_Columns::instance();
+            }
+
+            if (class_exists('WSO\\Admin\\Drag_Drop')) {
+                Admin\Drag_Drop::instance();
+            }
+
+            if (class_exists('WSO\\Admin\\Before_After')) {
+                Admin\Before_After::instance();
+            }
+
             // Injects dynamic CSS Customizer & local fonts into the admin header
             add_action('admin_head', function(): void {
                 if (class_exists('WSO\\Tools\\Font_Manager')) {
@@ -169,6 +181,52 @@ class Plugin {
         if (class_exists('WSO\\Tools\\Auto_Alt')) {
             Tools\Auto_Alt::instance();
         }
+
+        // Frontend + shared components (must run outside is_admin):
+        // On-the-fly serves WebP/AVIF on the frontend, Preload/Lazy_Load
+        // filter frontend output, REST_API registers rest_api_init,
+        // Gutenberg registers blocks, Toolbar adds admin-bar nodes,
+        // Auto_Scan/Auto_Alert handle WP-Cron events.
+        if (class_exists('WSO\\Engine\\On_The_Fly')) {
+            Engine\On_The_Fly::instance();
+        }
+
+        if (class_exists('WSO\\Tools\\REST_API')) {
+            Tools\REST_API::instance();
+        }
+
+        if (class_exists('WSO\\Tools\\Preload')) {
+            Tools\Preload::instance();
+        }
+
+        if (class_exists('WSO\\Tools\\Lazy_Load')) {
+            Tools\Lazy_Load::instance();
+        }
+
+        if (class_exists('WSO\\Tools\\Toolbar')) {
+            Tools\Toolbar::instance();
+        }
+
+        if (class_exists('WSO\\Tools\\Gutenberg')) {
+            Tools\Gutenberg::instance();
+        }
+
+        if (class_exists('WSO\\Tools\\Auto_Scan')) {
+            Tools\Auto_Scan::instance();
+        }
+
+        if (class_exists('WSO\\Tools\\Auto_Alert')) {
+            Tools\Auto_Alert::instance();
+        }
+
+        // WP-CLI commands are loaded via explicit require (filename does
+        // not match the autoloader convention for WP_CLI_Command).
+        if (defined('WP_CLI') && WP_CLI) {
+            $cli_file = (defined('WSO_PATH') ? WSO_PATH : plugin_dir_path(__FILE__)) . 'includes/Tools/class-wp-cli.php';
+            if (file_exists($cli_file)) {
+                require_once $cli_file;
+            }
+        }
     }
 
     /**
@@ -194,6 +252,16 @@ class Plugin {
             Core\Settings::instance()->set_defaults();
         }
 
+        // Schedule auto-scan cron
+        if (class_exists('WSO\\Tools\\Auto_Scan')) {
+            Tools\Auto_Scan::instance()->schedule();
+        }
+
+        // Schedule auto-alert cron
+        if (class_exists('WSO\\Tools\\Auto_Alert')) {
+            Tools\Auto_Alert::instance()->schedule();
+        }
+
         flush_rewrite_rules();
     }
 
@@ -203,6 +271,16 @@ class Plugin {
      * @return void
      */
     public static function deactivate(): void {
+        // Unschedule auto-scan cron
+        if (class_exists('WSO\\Tools\\Auto_Scan')) {
+            Tools\Auto_Scan::instance()->unschedule();
+        }
+
+        // Unschedule auto-alert cron
+        if (class_exists('WSO\\Tools\\Auto_Alert')) {
+            Tools\Auto_Alert::instance()->unschedule();
+        }
+
         flush_rewrite_rules();
     }
 }

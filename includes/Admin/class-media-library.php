@@ -43,6 +43,7 @@ class Media_Library {
         add_filter('manage_media_columns', [$this, 'add_column']);
         add_action('manage_media_custom_column', [$this, 'render_column'], 10, 2);
         add_filter('attachment_fields_to_edit', [$this, 'render_attachment_fields'], 10, 2);
+        // Hook into metadata generation so both main file and thumbnails are processed
         add_filter('wp_generate_attachment_metadata', [$this, 'save_upload_optimization_meta'], 20, 2);
 
         add_action('wp_ajax_wso_single_optimize', [$this, 'handle_single_optimize']);
@@ -266,10 +267,17 @@ class Media_Library {
 
         $html .= '</div>';
 
+        // Add before/after comparison if backup exists
+        $comparison_html = '';
+        $backup_path = Backup_Manager::instance()->get_backup_path($file);
+        if (file_exists($backup_path) && filesize($backup_path) > 0) {
+            $comparison_html = \WSO\Admin\Before_After::instance()->render_comparison_slider($post->ID);
+        }
+
         $fields['wso_webp_info'] = [
             'label' => 'بهینه چی',
             'input' => 'html',
-            'html'  => $html,
+            'html'  => $html . $comparison_html,
         ];
 
         return $fields;

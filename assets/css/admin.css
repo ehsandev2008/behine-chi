@@ -207,10 +207,30 @@
     box-shadow: 0 2px 4px rgba(239, 68, 68, 0.4);
 }
 
-.wso-dark-mode .wso-sun { display: block; }
-.wso-dark-mode .wso-moon { display: none; }
+#wso-app.wso-dark-mode .wso-sun { display: block; }
+#wso-app.wso-dark-mode .wso-moon { display: none; }
 .wso-sun { display: none; }
 .wso-moon { display: block; }
+
+/* Drag & Drop upload zone */
+.wso-drag-drop-zone.drag-over {
+    border-color: var(--wso-primary) !important;
+    background: rgba(59, 130, 246, 0.05);
+    transform: scale(1.01);
+}
+.wso-upload-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--wso-secondary);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    font-size: 12px;
+}
+.wso-upload-status.success { color: var(--wso-success); font-weight: 600; }
+.wso-upload-status.error { color: var(--wso-danger); font-weight: 600; }
+.wso-upload-optimization { font-size: 11px; color: var(--wso-text-muted); }
 
 /* Container & Layout */
 .wso-container {
@@ -848,8 +868,8 @@
     flex: 1;
 }
 
-/* Dark mode theme variables */
-.wso-dark-mode {
+/* Dark mode theme variables - high specificity selector overrides :root */
+#wso-app.wso-dark-mode {
     --wso-bg-main: #0f172a;
     --wso-bg-card: #1e293b;
     --wso-bg-header: #1e293b;
@@ -859,6 +879,223 @@
     --wso-secondary: #334155;
     --wso-secondary-text: #f8fafc;
     --wso-card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+}
+
+/* Dark mode toggle button active state */
+.wso-btn-icon-toggle.active {
+    background: var(--wso-primary);
+    color: #ffffff;
+    border-color: var(--wso-primary);
+}
+
+/* Dark mode specific overrides */
+.wso-dark-mode .wso-search-box {
+    background: var(--wso-secondary);
+    border-color: var(--wso-border-color);
+}
+
+.wso-dark-mode .wso-search-box input {
+    color: var(--wso-text-main);
+}
+
+.wso-dark-mode .wso-table th {
+    background: var(--wso-secondary);
+    color: var(--wso-text-muted);
+}
+
+.wso-dark-mode .wso-table tr:hover td {
+    background: var(--wso-secondary);
+}
+
+.wso-dark-mode .wso-health-item {
+    background: var(--wso-secondary);
+}
+
+.wso-dark-mode .wso-notification-card {
+    background: var(--wso-secondary);
+    border-color: var(--wso-border-color);
+}
+
+.wso-dark-mode .wso-notification-card.unread {
+    background: var(--wso-bg-card);
+}
+
+.wso-dark-mode .wso-confirm-box {
+    background: var(--wso-bg-card);
+    border-color: var(--wso-border-color);
+}
+
+.wso-dark-mode .wso-toast {
+    background: var(--wso-bg-card);
+    border-color: var(--wso-border-color);
+}
+
+.wso-dark-mode .wso-input-small,
+.wso-dark-mode .wso-input-medium,
+.wso-dark-mode .wso-input-full,
+.wso-dark-mode .wso-select,
+.wso-dark-mode .wso-textarea {
+    background: var(--wso-secondary);
+    color: var(--wso-text-main);
+    border-color: var(--wso-border-color);
+}
+
+.wso-dark-mode .wso-color-picker {
+    background: var(--wso-secondary);
+    border-color: var(--wso-border-color);
+}
+
+.wso-dark-mode .wso-slider-wrapper input[type="range"] {
+    background: var(--wso-secondary);
+}
+
+.wso-dark-mode .wso-slider-wrapper input[type="range"]::-webkit-slider-thumb {
+    background: var(--wso-primary);
+}
+
+.wso-dark-mode .wso-progress-bar-bg {
+    background: var(--wso-secondary);
+}
+
+.wso-dark-mode .wso-log-feed {
+    background: #0f172a;
+    color: #f1f5f9;
+}
+
+.wso-dark-mode .wso-toggle-slider {
+    background: var(--wso-secondary);
+    border-color: var(--wso-border-color);
+}
+
+.wso-dark-mode .wso-toggle-slider::before {
+    background: #ffffff;
+}
+
+.wso-dark-mode .wso-toggle-label input:checked + .wso-toggle-slider {
+    background: var(--wso-primary);
+    border-color: var(--wso-primary);
+}
+
+.wso-dark-mode .wso-divider {
+    border-top-color: var(--wso-border-color);
+}
+
+.wso-dark-mode .wso-field-help {
+    color: var(--wso-text-muted);
+}
+
+.wso-dark-mode .wso-text-muted {
+    color: var(--wso-text-muted);
+}
+
+.wso-dark-mode .wso-badge-neutral {
+    background: var(--wso-secondary);
+    color: var(--wso-secondary-text);
+}
+
+.wso-dark-mode .wso-version-badge {
+    background: var(--wso-secondary);
+    color: var(--wso-primary);
+}
+
+.wso-dark-mode .wso-nav-item:hover,
+.wso-dark-mode .wso-nav-item.active {
+    background: var(--wso-secondary);
+    color: var(--wso-primary);
+}
+
+.wso-dark-mode .wso-sidebar {
+    background: var(--wso-bg-card);
+    border-left-color: var(--wso-border-color);
+}
+
+.wso-dark-mode .wso-content {
+    background: var(--wso-bg-main);
+}
+
+.wso-dark-mode .wso-header {
+    background: var(--wso-bg-header);
+    border-bottom-color: var(--wso-border-color);
+}
+
+.wso-dark-mode .wso-card {
+    background: var(--wso-bg-card);
+    border-color: var(--wso-border-color);
+}
+
+.wso-dark-mode .wso-pane-title {
+    color: var(--wso-text-main);
+}
+
+.wso-dark-mode .wso-card-title {
+    color: var(--wso-text-main);
+}
+
+.wso-dark-mode .wso-stat-label {
+    color: var(--wso-text-muted);
+}
+
+.wso-dark-mode .wso-stat-value {
+    color: var(--wso-text-main);
+}
+
+.wso-dark-mode .wso-stat-value small {
+    color: var(--wso-text-muted);
+}
+
+.wso-dark-mode .wso-health-group-title {
+    color: var(--wso-primary);
+}
+
+.wso-dark-mode .wso-health-item-label {
+    color: var(--wso-text-main);
+}
+
+.wso-dark-mode .wso-health-item-desc {
+    color: var(--wso-text-muted);
+}
+
+.wso-dark-mode .wso-notification-text {
+    color: var(--wso-text-main);
+}
+
+.wso-dark-mode .wso-notification-time {
+    color: var(--wso-text-muted);
+}
+
+.wso-dark-mode .wso-btn-notify-dismiss {
+    color: var(--wso-text-muted);
+}
+
+.wso-dark-mode .wso-btn-notify-dismiss:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--wso-danger);
+}
+
+.wso-dark-mode .wso-confirm-box h3 {
+    color: var(--wso-text-main);
+}
+
+.wso-dark-mode .wso-confirm-box p {
+    color: var(--wso-text-muted);
+}
+
+.wso-dark-mode .wso-toast-message {
+    color: var(--wso-text-main);
+}
+
+.wso-dark-mode .wso-brand-banner {
+    border-color: var(--wso-border-color);
+}
+
+.wso-dark-mode .wso-logo-box {
+    border-color: var(--wso-border-color);
+}
+
+.wso-dark-mode .wso-inactive-banner {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: var(--wso-danger);
+    color: var(--wso-danger);
 }
 
 /* Animations */

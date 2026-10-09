@@ -65,6 +65,13 @@ class Optimizer {
     }
 
     /**
+     * Gets the active driver name (imagick|gd).
+     */
+    public function get_driver_name(): string {
+        return str_contains(get_class($this->driver), 'Imagick') ? 'imagick' : 'gd';
+    }
+
+    /**
      * Optimizes a single file path safely with backup check.
      *
      * @param string $file_path Absolute path to image.
@@ -176,7 +183,7 @@ class Optimizer {
             ];
         }
 
-        $quality = (int) $settings->get('wso_quality', 82);
+        $quality = (int) $settings->get('wso_quality', 75);
 
         // Strip EXIF metadata
         if ($settings->get('wso_strip_exif', 1)) {
@@ -207,7 +214,17 @@ class Optimizer {
         if ($settings->get('wso_convert_webp', 1)) {
             $info = pathinfo($file_path);
             $webp_file = $info['dirname'] . '/' . $info['filename'] . '.webp';
-            if ($this->driver->convert($file_path, $webp_file, 'image/webp', $quality)) {
+            
+            // Check if source is already WebP and below recompress threshold
+            $skip_webp = false;
+            if ($ext === 'webp') {
+                $threshold = (int) $settings->get('wso_webp_recompress_threshold', 0);
+                if ($threshold > 0 && $orig_size < ($threshold * 1024 * 1024)) {
+                    $skip_webp = true;
+                }
+            }
+            
+            if (!$skip_webp && $this->driver->convert($file_path, $webp_file, 'image/webp', $quality)) {
                 $generated_formats['webp'] = $webp_file;
             }
         }
@@ -252,6 +269,7 @@ class Optimizer {
             'savings_percent'   => $pct,
             'formats'           => $generated_formats,
             'watermark_applied' => $watermark_applied,
+            'driver'            => $this->get_driver_name(),
         ];
     }
 
@@ -268,30 +286,35 @@ class Optimizer {
      * @return int
      */
     private function resolve_true_original_size(int $attachment_id, string $file, int $current_size): int {
-        $candidates = [$current_size];
-
-        if ($attachment_id > 0) {
-            $stored = get_post_meta($attachment_id, '_wso_opt_data', true);
-            if (is_array($stored) && !empty($stored['original_size'])) {
-                $candidates[] = (int) $stored['original_size'];
-            }
-        }
-
         // Backup holds the pristine pre-optimization bytes — most reliable source.
+        $backup_size = 0;
         try {
             $backup_path = Backup_Manager::instance()->get_backup_path($file);
             if (is_string($backup_path) && file_exists($backup_path) && filesize($backup_path) > 0) {
-                $candidates[] = (int) filesize($backup_path);
+                $backup_size = (int) filesize($backup_path);
             }
         } catch (\Throwable $e) {
             // Ignore backup lookup failures; fall back to other candidates.
         }
 
-        $candidates = array_filter($candidates, static function ($v) {
-            return is_numeric($v) && (int) $v > 0;
-        });
+        // If backup exists, it is the authoritative original size.
+        if ($backup_size > 0) {
+            return $backup_size;
+        }
 
-        return empty($candidates) ? $current_size : max(array_map('intval', $candidates));
+        // Fallback: check stored meta from previous optimization runs.
+        if ($attachment_id > 0) {
+            $stored = get_post_meta($attachment_id, '_wso_opt_data', true);
+            if (is_array($stored) && !empty($stored['original_size'])) {
+                $stored_size = (int) $stored['original_size'];
+                if ($stored_size > 0) {
+                    return $stored_size;
+                }
+            }
+        }
+
+        // Last resort: current file size.
+        return $current_size;
     }
 
     public function optimize_attachment(int $attachment_id): array {
@@ -317,15 +340,14 @@ class Optimizer {
             $result['original_size'] = max((int) $result['original_size'], $true_original);
             $opt = (int) ($result['optimized_size'] ?? $pre_run_size);
             // Guard: optimized can never exceed original; clamp on edge cases (e.g. failed shrink).
-            if ($opt > $result['original_size'] && $true_original === $pre_run_size) {
+            if ($opt > $result['original_size']) {
                 $opt = $result['original_size'];
-                $result['optimized_size'] = $opt;
             }
+            $result['optimized_size']  = $opt;
             $result['saved_bytes']     = max(0, $result['original_size'] - $opt);
             $result['savings_percent'] = $result['original_size'] > 0
                 ? round(($result['saved_bytes'] / $result['original_size']) * 100, 2)
                 : 0.0;
-            $result['optimized_size']  = $opt;
         }
 
         $base_dir = dirname($file);
@@ -385,6 +407,15 @@ class Optimizer {
                 ['%s'],
                 ['%d']
             );
+
+            // Delete original file if setting is enabled
+            if ($settings->get('wso_delete_original', 0)) {
+                $original_file = get_attached_file($attachment_id);
+                // Only delete if the original is different from the converted file
+                if ($original_file && file_exists($original_file) && $original_file !== $converted_file) {
+                    @unlink($original_file);
+                }
+            }
         }
 
         if ($has_meta_updates && is_array($meta)) {
@@ -396,6 +427,9 @@ class Optimizer {
 
         update_post_meta($attachment_id, '_wso_optimized', 1);
         update_post_meta($attachment_id, '_wso_opt_data', $result);
+
+        // Invalidate dashboard upload-dir scan cache so WebP/AVIF counts refresh.
+        delete_transient('wso_upload_dir_scan');
 
         return $result;
     }

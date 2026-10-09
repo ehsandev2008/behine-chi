@@ -1,0 +1,36 @@
+/* Gutenberg Block: Optimized Image */
+
+.wso-optimized-image-block {
+    margin: 0;
+    padding: 0;
+}
+
+.wso-optimized-image-block img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    border-radius: 4px;
+}
+
+.wso-block-empty {
+    padding: 20px;
+    background: #f1f5f9;
+    border-radius: 8px;
+    text-align: center;
+    color: #64748b;
+    font-size: 14px;
+}
+
+.wso-block-upload-btn {
+    background: #3b82f6;
+    color: #fff;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.wso-block-upload-btn:hover {
+    background: #2563eb;
+}

@@ -204,6 +204,7 @@ class Auto_Alt {
         ]);
 
         $ids = $query->posts ?: [];
+        $processed = count($ids);
         $filled = 0;
         $skipped = 0;
 
@@ -216,11 +217,15 @@ class Auto_Alt {
             }
         }
 
+        // If we got a full batch, there may be more — let the client know
+        $has_more = ($processed >= $limit);
+
         wp_send_json_success([
             'message'   => sprintf('تعداد %d تصویر Alt دریافت کردند و %d مورد نادیده گرفته شد.', $filled, $skipped),
             'filled'    => $filled,
             'skipped'   => $skipped,
-            'processed' => count($ids),
+            'processed' => $processed,
+            'has_more'  => $has_more,
         ]);
     }
 }
