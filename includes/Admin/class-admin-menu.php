@@ -1062,7 +1062,7 @@ class Admin_Menu {
                                     <h3 class="wso-card-title">اطلاعات نگارش</h3>
                                     <p><strong>نام افزونه:</strong> بهینه چی</p>
                                     <p><strong>نسخه تجاری:</strong> <?php echo esc_html(WSO_VERSION); ?> Pro</p>
-                                    <p><strong>سازنده و توسعه دهنده:</strong> <a href="http://sir-developer.ir/" target="_blank" style="color:var(--wso-primary); text-decoration:none; font-weight:bold;">Ehsan.dev</a></p>
+                                    <p><strong>سازنده و توسعه دهنده:</strong> <a href="https://sir-developer.ir/" target="_blank" rel="noopener" style="color:var(--wso-primary); text-decoration:none; font-weight:bold;">Ehsan.dev</a></p>
                                     <p><strong>نوع لایسنس:</strong> GPLv2 تجاری آفلاین</p>
                                 </div>
                             </div>

@@ -58,6 +58,16 @@ class Database {
     }
 
     /**
+     * Prevent cloning of the singleton.
+     */
+    private function __clone() {}
+
+    /**
+     * Prevent unserializing of the singleton.
+     */
+    public function __wakeup() {}
+
+    /**
      * Creates or updates plugin database tables.
      *
      * @return void
@@ -71,11 +81,11 @@ class Database {
         $sql_queue = "CREATE TABLE {$this->queue_table} (
             id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
             attachment_id bigint(20) unsigned NOT NULL DEFAULT 0,
-            file_path varchar(1024) NOT NULL,
+            file_path varchar(512) NOT NULL,
             status varchar(20) NOT NULL DEFAULT 'pending',
             error_message text NULL,
             created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY  (id),
             KEY status (status),
             KEY attachment_id (attachment_id)
@@ -85,10 +95,10 @@ class Database {
             id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
             attachment_id bigint(20) unsigned NOT NULL DEFAULT 0,
             file_name varchar(255) NOT NULL,
-            original_size bigint(20) unsigned NOT NULL DEFAULT 0,
-            optimized_size bigint(20) unsigned NOT NULL DEFAULT 0,
-            saved_bytes bigint(20) unsigned NOT NULL DEFAULT 0,
-            savings_percent float NOT NULL DEFAULT 0,
+            original_size bigint(20) NOT NULL DEFAULT 0,
+            optimized_size bigint(20) NOT NULL DEFAULT 0,
+            saved_bytes bigint(20) NOT NULL DEFAULT 0,
+            savings_percent decimal(5,2) NOT NULL DEFAULT 0.00,
             status varchar(20) NOT NULL DEFAULT 'success',
             message text NULL,
             created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -110,5 +120,20 @@ class Database {
         dbDelta($sql_queue);
         dbDelta($sql_logs);
         dbDelta($sql_notifications);
+
+        update_option('wso_db_version', defined('WSO_VERSION') ? WSO_VERSION : '2.1.0');
+    }
+
+    /**
+     * Runs table migration when plugin version changes (for updates without re-activation).
+     *
+     * @return void
+     */
+    public function maybe_migrate(): void {
+        $stored = get_option('wso_db_version', '');
+        $current = defined('WSO_VERSION') ? WSO_VERSION : '2.1.0';
+        if ($stored !== $current) {
+            $this->create_tables();
+        }
     }
 }

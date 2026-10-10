@@ -76,8 +76,9 @@ class Health_Check {
         $base_dir   = $upload_dir['basedir'];
 
         $disk_free = 'Unknown';
-        if (function_exists('disk_free_space') && @disk_free_space($base_dir) !== false) {
-            $disk_free = size_format(@disk_free_space($base_dir), 2);
+        $disk_bytes = function_exists('disk_free_space') ? @disk_free_space($base_dir) : false;
+        if (false !== $disk_bytes && is_numeric($disk_bytes)) {
+            $disk_free = size_format((float) $disk_bytes, 2);
         }
 
         return [
@@ -114,7 +115,7 @@ class Health_Check {
             'disk_free_space' => [
                 'label'   => 'فضای آزاد دیسک',
                 'value'   => $disk_free,
-                'status'  => ($disk_free === 'Unknown' || stripos($disk_free, 'KB') !== false || stripos($disk_free, ' B') !== false) ? 'warning' : 'success',
+                'status'  => $this->disk_status($disk_bytes),
                 'desc'    => 'فضای خالی در پوشه آپلودها جهت ذخیره فایل‌های بهینه‌شده.',
             ],
             'folder_permissions' => [
@@ -124,6 +125,26 @@ class Health_Check {
                 'desc'    => 'پوشه افزونه باید قابل نوشتن و خواندن باشد.',
             ],
         ];
+    }
+
+    /**
+     * Determines disk status from raw bytes (locale-independent).
+     *
+     * @param mixed $bytes Raw disk_free_space value or false.
+     * @return string
+     */
+    private function disk_status($bytes): string {
+        if (false === $bytes || !is_numeric($bytes)) {
+            return 'warning';
+        }
+        $b = (float) $bytes;
+        if ($b < 100 * 1024 * 1024) {
+            return 'error';
+        }
+        if ($b < 500 * 1024 * 1024) {
+            return 'warning';
+        }
+        return 'success';
     }
 
     /**
@@ -150,14 +171,16 @@ class Health_Check {
         foreach ($extensions as $ext => $info) {
             $loaded = extension_loaded($ext);
             
-            // GD and Imagick are critical but at least one must be loaded
+            // GD and Imagick are critical but at least one must be loaded.
+            // Optional helpers (zip/openssl/curl/dom/xml) are warnings, not errors.
             $status = 'success';
             if (!$loaded) {
                 if ($ext === 'imagick' || $ext === 'gd') {
-                    // Imagick is optional if GD is available, and vice versa
                     $status = (extension_loaded('gd') || extension_loaded('imagick')) ? 'warning' : 'error';
-                } else {
+                } elseif (in_array($ext, ['fileinfo', 'exif', 'mbstring', 'json'], true)) {
                     $status = 'error';
+                } else {
+                    $status = 'warning';
                 }
             }
 
@@ -179,7 +202,7 @@ class Health_Check {
      */
     private function check_formats(): array {
         $driver = Optimizer::instance()->get_driver();
-        $is_imagick = str_contains(get_class($driver), 'Imagick');
+        $is_imagick = (false !== strpos(get_class($driver), 'Imagick'));
         $engine_label = $is_imagick ? 'Imagick' : 'GD';
 
         $webp_supported = $driver->supports_webp();
@@ -325,7 +348,7 @@ class Health_Check {
         $logs_table_exists  = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $db->logs_table)) === $db->logs_table;
 
         $driver = Optimizer::instance()->get_driver();
-        $is_imagick = str_contains(get_class($driver), 'Imagick');
+        $is_imagick = (false !== strpos(get_class($driver), 'Imagick'));
 
         return [
             'queue_table' => [
@@ -415,6 +438,10 @@ class Health_Check {
      * @return bool
      */
     public function repair(string $fix_action): bool {
+        $allowed = ['create_folders', 'clear_cache', 'rebuild_config', 'reset_permissions'];
+        if (!in_array($fix_action, $allowed, true)) {
+            return false;
+        }
         $upload_dir = wp_upload_dir();
         
         switch ($fix_action) {
@@ -428,7 +455,7 @@ class Health_Check {
                         wp_mkdir_p($dir);
                     }
                     // Try to write security files
-                    @file_put_contents($dir . '.htaccess', "deny from all\n");
+                    @file_put_contents($dir . '.htaccess', "<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n");
                     @file_put_contents($dir . 'index.php', "<?php // silence\n");
                 }
                 Notifications::instance()->add('success', 'پوشه‌های اختصاصی افزونه (wso-backups, wso-cache, wso-tmp) با موفقیت ساخته شدند.');
@@ -488,16 +515,34 @@ class Health_Check {
      */
     private function parse_ini_bytes(string $val): int {
         $val  = trim($val);
+        if ('' === $val) {
+            return 0;
+        }
+        // -1 / 0 means unlimited in PHP ini.
+        if ('-1' === $val) {
+            return PHP_INT_MAX;
+        }
         $last = strtolower($val[strlen($val) - 1]);
-        $val  = (int) $val;
+        if (!ctype_alpha($last)) {
+            return (int) $val;
+        }
+        $num  = (int) $val;
+        $bytes = $num;
         switch ($last) {
             case 'g':
-                $val *= 1024;
+                $bytes *= 1024;
+                // fall-through
             case 'm':
-                $val *= 1024;
+                $bytes *= 1024;
+                // fall-through
             case 'k':
-                $val *= 1024;
+                $bytes *= 1024;
+                break;
+            default:
+                $bytes = $num;
+                break;
         }
-        return $val;
+        return $bytes;
+    }
     }
 }

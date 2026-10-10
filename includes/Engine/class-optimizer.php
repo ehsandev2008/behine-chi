@@ -68,7 +68,8 @@ class Optimizer {
      * Gets the active driver name (imagick|gd).
      */
     public function get_driver_name(): string {
-        return str_contains(get_class($this->driver), 'Imagick') ? 'imagick' : 'gd';
+        $class = get_class($this->driver);
+        return (false !== strpos($class, 'Imagick')) ? 'imagick' : 'gd';
     }
 
     /**
@@ -116,9 +117,29 @@ class Optimizer {
         $filetype = wp_check_filetype($file_path);
         if (!empty($filetype['type'])) {
             $mime = $filetype['type'];
-        } elseif (function_exists('getimagesize') && $ext !== 'svg') {
+        }
+        // Verify real content: extension alone is not trusted.
+        if (function_exists('getimagesize') && $ext !== 'svg') {
             $img_info = @getimagesize($file_path);
-            $mime = $img_info['mime'] ?? '';
+            $real_mime = $img_info['mime'] ?? '';
+            if ('' !== $real_mime) {
+                // If extension claims image but content disagrees, reject fakes.
+                if ('' !== $mime && $mime !== $real_mime && !in_array($ext, ['jpg','jpeg'], true)) {
+                    $mime = $real_mime;
+                } elseif ('' === $mime) {
+                    $mime = $real_mime;
+                }
+            } elseif ('' === $mime) {
+                Logger::log([
+                    'attachment_id' => $attachment_id,
+                    'file_name'     => basename($file_path),
+                    'original_size' => $orig_size,
+                    'optimized_size'=> $orig_size,
+                    'status'        => Logger::STATUS_ERROR,
+                    'message'       => 'فایل تصویری معتبر نیست یا خراب است.',
+                ]);
+                return ['status' => Logger::STATUS_ERROR, 'message' => 'فایل تصویری معتبر نیست یا خراب است.'];
+            }
         }
 
         if ($ext === 'svg' || $mime === 'image/svg+xml') {
@@ -126,7 +147,16 @@ class Optimizer {
         }
 
         $supported_mimes = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'];
-        if (!in_array($mime, $supported_mimes, true) && !in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'svg'], true)) {
+        $supported_exts = ['jpg', 'jpeg', 'png', 'webp', 'svg'];
+        if (!in_array($mime, $supported_mimes, true) || !in_array($ext, $supported_exts, true)) {
+            Logger::log([
+                'attachment_id' => $attachment_id,
+                'file_name'     => basename($file_path),
+                'original_size' => $orig_size,
+                'optimized_size'=> $orig_size,
+                'status'        => Logger::STATUS_SKIPPED,
+                'message'       => 'فرمت تصویر پشتیبانی نمی‌شود (تنها JPEG، PNG، WebP و SVG قابل بهینه‌سازی هستند).',
+            ]);
             return [
                 'status'  => Logger::STATUS_SKIPPED,
                 'message' => 'فرمت تصویر پشتیبانی نمی‌شود (تنها JPEG، PNG، WebP و SVG قابل بهینه‌سازی هستند).',
@@ -183,18 +213,28 @@ class Optimizer {
             ];
         }
 
-        $quality = (int) $settings->get('wso_quality', 75);
+        $quality = max(1, min(100, (int) $settings->get('wso_quality', 75)));
 
-        // Strip EXIF metadata
+        // Strip EXIF metadata (respects quality so file never grows).
         if ($settings->get('wso_strip_exif', 1)) {
-            $this->driver->strip_exif($file_path);
+            $this->driver->strip_exif($file_path, $quality);
         }
 
-        // Resize down if enabled
-        $max_w = (int) $settings->get('wso_max_width', 2560);
-        $max_h = (int) $settings->get('wso_max_height', 2560);
-        if ($max_w > 0 && $max_h > 0) {
-            $this->driver->resize($file_path, $max_w, $max_h, $quality);
+        // Resize down if enabled (either dimension set enables resize).
+        $max_w = max(0, (int) $settings->get('wso_max_width', 2560));
+        $max_h = max(0, (int) $settings->get('wso_max_height', 2560));
+        if ($max_w > 0 || $max_h > 0) {
+            $rw = $max_w > 0 ? $max_w : PHP_INT_MAX;
+            $rh = $max_h > 0 ? $max_h : PHP_INT_MAX;
+            $this->driver->resize($file_path, (int) $rw, (int) $rh, $quality);
+        }
+
+        // Aggressive in-place recompression of the original so even browsers
+        // without WebP/AVIF receive a smaller file (only kept when smaller).
+        if (method_exists($this->driver, 'recompress')) {
+            try {
+                $this->driver->recompress($file_path, $quality);
+            } catch (\Throwable $e) {}
         }
 
         // Apply watermark once per main file (never on SVG, never on thumbnails).
@@ -210,31 +250,57 @@ class Optimizer {
 
         $generated_formats = [];
 
-        // Generate WebP
-        if ($settings->get('wso_convert_webp', 1)) {
+        // Generate WebP (skip self-overwrite: source webp -> same webp path).
+        if ($settings->get('wso_convert_webp', 1) && $this->driver->supports_webp()) {
             $info = pathinfo($file_path);
             $webp_file = $info['dirname'] . '/' . $info['filename'] . '.webp';
             
             // Check if source is already WebP and below recompress threshold
             $skip_webp = false;
             if ($ext === 'webp') {
-                $threshold = (int) $settings->get('wso_webp_recompress_threshold', 0);
-                if ($threshold > 0 && $orig_size < ($threshold * 1024 * 1024)) {
+                if (wp_normalize_path($webp_file) === wp_normalize_path($file_path)) {
+                    // Same file: recompress in place instead of self-copy.
+                    if (method_exists($this->driver, 'recompress')) {
+                        try { $this->driver->recompress($file_path, $quality); } catch (\Throwable $e) {}
+                    }
                     $skip_webp = true;
+                } else {
+                    $threshold = max(0, (int) $settings->get('wso_webp_recompress_threshold', 0));
+                    if ($threshold > 0 && $orig_size < ($threshold * 1024 * 1024)) {
+                        $skip_webp = true;
+                    }
                 }
             }
             
             if (!$skip_webp && $this->driver->convert($file_path, $webp_file, 'image/webp', $quality)) {
-                $generated_formats['webp'] = $webp_file;
+                // Drop converted file when it is larger than the (already recompressed) original.
+                $cur_size = file_exists($file_path) ? (int) filesize($file_path) : $orig_size;
+                if (file_exists($webp_file) && filesize($webp_file) < $cur_size) {
+                    $generated_formats['webp'] = $webp_file;
+                } else {
+                    @unlink($webp_file);
+                }
             }
         }
 
-        // Generate AVIF
-        if ($settings->get('wso_convert_avif', 0)) {
+        // Generate AVIF (skip when source is already AVIF path).
+        if ($settings->get('wso_convert_avif', 0) && $this->driver->supports_avif()) {
             $info = pathinfo($file_path);
             $avif_file = $info['dirname'] . '/' . $info['filename'] . '.avif';
-            if ($this->driver->convert($file_path, $avif_file, 'image/avif', $quality)) {
-                $generated_formats['avif'] = $avif_file;
+            if (wp_normalize_path($avif_file) !== wp_normalize_path($file_path)) {
+                // AVIF encode is CPU-heavy: skip tiny gains on small originals.
+                if ($this->driver->convert($file_path, $avif_file, 'image/avif', $quality)) {
+                    $cur_size = file_exists($file_path) ? (int) filesize($file_path) : $orig_size;
+                    $best = $cur_size;
+                    if (!empty($generated_formats['webp']) && file_exists($generated_formats['webp'])) {
+                        $best = min($best, (int) filesize($generated_formats['webp']));
+                    }
+                    if (file_exists($avif_file) && filesize($avif_file) < $best) {
+                        $generated_formats['avif'] = $avif_file;
+                    } else {
+                        @unlink($avif_file);
+                    }
+                }
             }
         }
 
@@ -389,8 +455,15 @@ class Optimizer {
         }
 
         if (!empty($converted_file)) {
+            // Capture pristine original path BEFORE meta points to the converted file.
+            $original_file_before_switch = $file;
             $upload_dir = wp_upload_dir();
-            $relative_path = ltrim(str_replace($upload_dir['basedir'], '', $converted_file), '/\\');
+            $basedir_norm = wp_normalize_path($upload_dir['basedir']);
+            $conv_norm = wp_normalize_path($converted_file);
+            $relative_path = ltrim(substr($conv_norm, strlen($basedir_norm)), '/');
+            if ('' === $relative_path) {
+                $relative_path = ltrim(str_replace($upload_dir['basedir'], '', $converted_file), '/\\');
+            }
 
             update_post_meta($attachment_id, '_wp_attached_file', $relative_path);
             
@@ -408,12 +481,14 @@ class Optimizer {
                 ['%d']
             );
 
-            // Delete original file if setting is enabled
-            if ($settings->get('wso_delete_original', 0)) {
-                $original_file = get_attached_file($attachment_id);
+            // Delete original file if setting is enabled (uses pre-switch path).
+            if (Settings::instance()->get('wso_delete_original', 0)) {
                 // Only delete if the original is different from the converted file
-                if ($original_file && file_exists($original_file) && $original_file !== $converted_file) {
-                    @unlink($original_file);
+                // and a backup exists so restore remains possible.
+                if ($original_file_before_switch && file_exists($original_file_before_switch) && wp_normalize_path($original_file_before_switch) !== wp_normalize_path($converted_file)) {
+                    if (Backup_Manager::instance()->has_backup($original_file_before_switch)) {
+                        @unlink($original_file_before_switch);
+                    }
                 }
             }
         }

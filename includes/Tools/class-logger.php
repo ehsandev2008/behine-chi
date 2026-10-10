@@ -37,11 +37,15 @@ class Logger {
 
         $attachment_id  = (int) ($data['attachment_id'] ?? 0);
         $file_name      = sanitize_text_field($data['file_name'] ?? 'Unknown');
-        $original_size  = (int) ($data['original_size'] ?? 0);
-        $optimized_size = (int) ($data['optimized_size'] ?? 0);
-        $saved_bytes    = max(0, $original_size - $optimized_size);
+        $original_size  = max(0, (int) ($data['original_size'] ?? 0));
+        $optimized_size = max(0, (int) ($data['optimized_size'] ?? 0));
+        $saved_bytes    = $original_size - $optimized_size;
         $savings_pct    = $original_size > 0 ? round(($saved_bytes / $original_size) * 100, 2) : 0.0;
-        $status         = sanitize_text_field($data['status'] ?? self::STATUS_SUCCESS);
+        $allowed_status = [self::STATUS_SUCCESS, self::STATUS_WARNING, self::STATUS_ERROR, self::STATUS_SKIPPED];
+        $status         = sanitize_key($data['status'] ?? self::STATUS_SUCCESS);
+        if (!in_array($status, $allowed_status, true)) {
+            $status = self::STATUS_ERROR;
+        }
         $message        = sanitize_text_field($data['message'] ?? '');
 
         // Check if table exists before inserting
@@ -81,11 +85,15 @@ class Logger {
         global $wpdb;
         $db = Database::instance();
         $table = $db->logs_table;
+        $limit = max(1, min(100, $limit));
+        $offset = max(0, $offset);
+        $status = sanitize_key($status);
 
         $where = ['1=1'];
         $params = [];
 
-        if (!empty($status)) {
+        $allowed_status = ['success', 'warning', 'error', 'skipped'];
+        if ('' !== $status && in_array($status, $allowed_status, true)) {
             $where[] = 'status = %s';
             $params[] = $status;
         }
@@ -118,11 +126,13 @@ class Logger {
         global $wpdb;
         $db = Database::instance();
         $table = $db->logs_table;
+        $status = sanitize_key($status);
 
         $where = ['1=1'];
         $params = [];
 
-        if (!empty($status)) {
+        $allowed_status = ['success', 'warning', 'error', 'skipped'];
+        if ('' !== $status && in_array($status, $allowed_status, true)) {
             $where[] = 'status = %s';
             $params[] = $status;
         }

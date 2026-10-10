@@ -1,11 +1,13 @@
 <?php
 /*
 Plugin Name: بهینه چی | افزونه حرفه‌ای بهینه‌سازی تصاویر وردپرس
-Plugin URI: http://sir-developer.ir/
+Plugin URI: https://sir-developer.ir/
 Description: افزونه حرفهای بهینهسازی تصاویر وردپرس برای کاهش حجم تصاویر، افزایش سرعت سایت و پشتیبانی از فرمتهای مدرن WebP و AVIF.
 Version: 2.1.0
+Requires at least: 5.5
+Requires PHP: 7.4
 Author: Ehsan.dev
-Author URI: http://sir-developer.ir/
+Author URI: https://sir-developer.ir/
 License: GPLv2 or later
 Text Domain: behinechi-optimizer
 Domain Path: /languages
@@ -13,6 +15,26 @@ Domain Path: /languages
 
 if (!defined('ABSPATH')) {
     exit;
+}
+
+// PHP 7.4 compatibility polyfills (str_contains/str_starts_with are PHP 8+).
+if (!function_exists('str_contains')) {
+    function str_contains(string $haystack, string $needle): bool {
+        return '' === $needle || false !== strpos($haystack, $needle);
+    }
+}
+if (!function_exists('str_starts_with')) {
+    function str_starts_with(string $haystack, string $needle): bool {
+        return '' === $needle || 0 === strncmp($haystack, $needle, strlen($needle));
+    }
+}
+if (!function_exists('str_ends_with')) {
+    function str_ends_with(string $haystack, string $needle): bool {
+        if ('' === $needle) {
+            return true;
+        }
+        return substr($haystack, -strlen($needle)) === $needle;
+    }
 }
 
 // Plugin Constants
@@ -93,16 +115,35 @@ if (!function_exists('wso_max_size')) {
 
 /**
  * Force WordPress Image Editor to output WebP or AVIF format when enabled.
+ * Checks driver support first so servers without AVIF/WebP never break.
  */
-add_filter('image_editor_output_format', function ($formats) {
-    if (wso_enabled()) {
-        if (wso_opt('wso_convert_avif', 0)) {
-            $formats['image/jpeg'] = 'image/avif';
-            $formats['image/png']  = 'image/avif';
-        } elseif (wso_opt('wso_convert_webp', 1)) {
-            $formats['image/jpeg'] = 'image/webp';
-            $formats['image/png']  = 'image/webp';
+function wso_filter_image_editor_output_format($formats) {
+    if (!wso_enabled()) {
+        return $formats;
+    }
+    $driver = null;
+    if (class_exists('WSO\\Engine\\Optimizer')) {
+        try {
+            $driver = WSO\Engine\Optimizer::instance()->get_driver();
+        } catch (Throwable $e) {
+            $driver = null;
         }
     }
+    $want_avif = (bool) wso_opt('wso_convert_avif', 0);
+    $want_webp = (bool) wso_opt('wso_convert_webp', 1);
+    if ($want_avif && (!$driver || !$driver->supports_avif())) {
+        $want_avif = false;
+    }
+    if ($want_webp && (!$driver || !$driver->supports_webp())) {
+        $want_webp = false;
+    }
+    if ($want_avif) {
+        $formats['image/jpeg'] = 'image/avif';
+        $formats['image/png']  = 'image/avif';
+    } elseif ($want_webp) {
+        $formats['image/jpeg'] = 'image/webp';
+        $formats['image/png']  = 'image/webp';
+    }
     return $formats;
-});
+}
+add_filter('image_editor_output_format', 'wso_filter_image_editor_output_format');

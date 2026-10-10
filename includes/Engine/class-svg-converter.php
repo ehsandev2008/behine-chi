@@ -54,13 +54,40 @@ class SVG_Converter {
      * Convert using Imagick.
      */
     private function convert_imagick(string $svg_path, string $target_file, string $format, int $width, int $height): bool {
+        $format = strtolower($format);
+        if (!in_array($format, ['webp', 'avif'], true)) {
+            return false;
+        }
         try {
+            // Validate SVG first to block XXE/SSRF payloads.
+            $raw_check = @file_get_contents($svg_path);
+            if (false === $raw_check || !SVG_Optimizer::instance()->is_valid_svg($raw_check)) {
+                return false;
+            }
+            unset($raw_check);
+            if (filesize($svg_path) > 5 * 1024 * 1024) {
+                return false;
+            }
             $imagick = new \Imagick();
+            try {
+                $imagick->setResourceLimit(\Imagick::RESOURCETYPE_MEMORY, 256 * 1024 * 1024);
+                $imagick->setResourceLimit(\Imagick::RESOURCETYPE_AREA, 25000000);
+            } catch (\Throwable $e) {}
             $imagick->setBackgroundColor(new \ImagickPixel('transparent'));
+            // Cap raster resolution so huge SVGs do not OOM.
+            try {
+                $imagick->setResolution(96, 96);
+            } catch (\Throwable $e) {}
 
             // Read SVG
-            $svg_content = file_get_contents($svg_path);
+            $svg_content = @file_get_contents($svg_path);
+            if (false === $svg_content) {
+                $imagick->clear();
+                $imagick->destroy();
+                return false;
+            }
             $imagick->readImageBlob($svg_content);
+            unset($svg_content);
 
             // Set dimensions
             $orig_w = $imagick->getImageWidth();
@@ -90,50 +117,12 @@ class SVG_Converter {
 
     /**
      * Convert using GD (limited SVG support).
+     * GD cannot rasterize SVG; this always fails safely without warnings.
      */
     private function convert_gd(string $svg_path, string $target_file, string $format, int $width, int $height): bool {
-        if (!extension_loaded('gd')) {
-            return false;
-        }
-
-        // GD has limited SVG support - try to use it
-        $image = @imagecreatefromstring(file_get_contents($svg_path));
-        if (!$image) {
-            return false;
-        }
-
-        $orig_w = imagesx($image);
-        $orig_h = imagesy($image);
-
-        if ($width > 0 && $height > 0) {
-            $new_w = $width;
-            $new_h = $height;
-        } elseif ($width > 0) {
-            $new_w = $width;
-            $new_h = (int) round($orig_h * ($width / $orig_w));
-        } elseif ($height > 0) {
-            $new_h = $height;
-            $new_w = (int) round($orig_w * ($height / $orig_h));
-        } else {
-            $new_w = $orig_w;
-            $new_h = $orig_h;
-        }
-
-        $resized = imagecreatetruecolor($new_w, $new_h);
-        imagealphablending($resized, false);
-        imagesavealpha($resized, true);
-        $transparent = imagecolorallocatealpha($resized, 0, 0, 0, 127);
-        imagefill($resized, 0, 0, $transparent);
-
-        imagecopyresampled($resized, $image, 0, 0, 0, 0, $new_w, $new_h, $orig_w, $orig_h);
-        imagedestroy($image);
-
-        $result = false;
-        if ($format === 'webp' && function_exists('imagewebp')) {
-            $result = @imagewebp($resized, $target_file, 85);
-        }
-
-        imagedestroy($resized);
-        return $result && file_exists($target_file) && filesize($target_file) > 0;
+        // GD has no SVG rasterizer. Do not attempt imagecreatefromstring on XML
+        // (it only wastes memory and logs warnings). Imagick path above is the
+        // only supported route; return false so callers fall back cleanly.
+        return false;
     }
 }

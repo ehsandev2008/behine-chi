@@ -35,7 +35,11 @@ class Toolbar {
             return;
         }
 
-        $stats = \WSO\Admin\Dashboard_Widgets::get_stats();
+        try {
+            $stats = \WSO\Admin\Dashboard_Widgets::get_stats();
+        } catch (\Throwable $e) {
+            $stats = ['saved_size' => '—'];
+        }
 
         // Main menu item
         $wp_admin_bar->add_node([
@@ -72,14 +76,14 @@ class Toolbar {
         ]);
 
         // Quick Stats
+        $saved = isset($stats['saved_size']) ? (string) $stats['saved_size'] : '—';
         $wp_admin_bar->add_node([
             'id'     => 'wso-toolbar-stats',
             'parent' => 'wso-toolbar',
-            'title'  => sprintf('صرفه‌جویی: %s', $stats['saved_size']),
+            'title'  => sprintf('صرفه‌جویی: %s', esc_html($saved)),
             'href'   => admin_url('upload.php?page=wso-settings#tab-dashboard'),
             'meta'   => [
                 'class' => 'wso-toolbar-stats',
-                'style'  => 'background: #10b981; color: #fff;',
             ],
         ]);
     }

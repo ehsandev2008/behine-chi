@@ -43,25 +43,75 @@ class Drag_Drop {
 
         $file = $_FILES['file'];
 
-        // Validate file type
+        // Validate file type by extension AND real content.
         $allowed_types = ['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/svg+xml'];
-        $file_type = wp_check_filetype($file['name']);
+        $safe_name = sanitize_file_name($file['name']);
+        $file_type = wp_check_filetype($safe_name);
 
         if (!in_array($file_type['type'], $allowed_types, true)) {
             wp_send_json_error(['message' => 'نوع فایل مجاز نیست.']);
         }
+        // Size gate: respect wso_max_size and WP max upload.
+        $max_mb = max(1, (int) \WSO\Core\Settings::instance()->get('wso_max_size', 2));
+        $wp_max = wp_max_upload_size();
+        $allowed_bytes = min($max_mb * 1024 * 1024, $wp_max > 0 ? $wp_max : PHP_INT_MAX);
+        if (!empty($file['size']) && (int) $file['size'] > $allowed_bytes) {
+            wp_send_json_error(['message' => 'حجم فایل بیشتر از حد مجاز است.']);
+        }
+        if (!empty($file['error']) && UPLOAD_ERR_OK !== (int) $file['error']) {
+            wp_send_json_error(['message' => 'خطا در آپلود فایل.']);
+        }
+        // SVG hardening: validate + sanitize content before accepting.
+        if ('image/svg+xml' === $file_type['type']) {
+            $svg_raw = @file_get_contents($file['tmp_name']);
+            if (false === $svg_raw || !\WSO\Engine\SVG_Optimizer::instance()->is_valid_svg($svg_raw)) {
+                wp_send_json_error(['message' => 'فایل SVG نامعتبر است.']);
+            }
+            $clean = \WSO\Engine\SVG_Optimizer::instance()->minify_svg_content($svg_raw);
+            if ('' === $clean || !\WSO\Engine\SVG_Optimizer::instance()->is_valid_svg($clean)) {
+                wp_send_json_error(['message' => 'فایل SVG ناامن است.']);
+            }
+            @file_put_contents($file['tmp_name'], $clean);
+        } else {
+            // Verify raster content is a real image.
+            $img_info = @getimagesize($file['tmp_name']);
+            if (!$img_info || empty($img_info['mime']) || 0 !== strpos($img_info['mime'], 'image/')) {
+                wp_send_json_error(['message' => 'فایل تصویری معتبر نیست.']);
+            }
+        }
 
-        // Upload file
-        $upload = wp_upload_bits($file['name'], null, file_get_contents($file['tmp_name']));
-
+        // Upload file via WP API (streams to disk; no full-memory copy).
+        $upload = wp_upload_bits($safe_name, null, '');
         if (!empty($upload['error'])) {
             wp_send_json_error(['message' => $upload['error']]);
         }
+        // Move uploaded temp into place in chunks.
+        $src = @fopen($file['tmp_name'], 'rb');
+        $dst = @fopen($upload['file'], 'wb');
+        if (!$src || !$dst) {
+            if ($src) {
+                @fclose($src);
+            }
+            if ($dst) {
+                @fclose($dst);
+            }
+            @unlink($upload['file']);
+            wp_send_json_error(['message' => 'خطا در ذخیره فایل.']);
+        }
+        while (!feof($src)) {
+            $chunk = fread($src, 1048576);
+            if (false === $chunk) {
+                break;
+            }
+            fwrite($dst, $chunk);
+        }
+        fclose($src);
+        fclose($dst);
 
         // Create attachment
         $attachment = [
             'post_mime_type' => $file_type['type'],
-            'post_title'     => sanitize_file_name(pathinfo($file['name'], PATHINFO_FILENAME)),
+            'post_title'     => sanitize_text_field(pathinfo($safe_name, PATHINFO_FILENAME)),
             'post_content'   => '',
             'post_status'    => 'inherit',
         ];
@@ -93,8 +143,8 @@ class Drag_Drop {
             'attachment' => [
                 'id'   => $attachment_id,
                 'url'  => $upload['url'],
-                'name' => $file['name'],
-                'size' => size_format($file['size'], 2),
+                'name' => $safe_name,
+                'size' => size_format((int) ($file['size'] ?? 0), 2),
             ],
             'optimization' => $optimization_result ? [
                 'status'          => $optimization_result['status'],

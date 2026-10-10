@@ -51,8 +51,12 @@ class Notifications {
         $db = Database::instance();
         $table = $db->notifications_table;
 
+        $allowed = ['info', 'success', 'warning', 'error'];
         $type    = sanitize_key($type);
-        $message = wp_kses_post($message);
+        if (!in_array($type, $allowed, true)) {
+            $type = 'info';
+        }
+        $message = wp_kses_post(mb_substr($message, 0, 2000));
 
         // Ensure table exists
         if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table)) !== $table) {
@@ -86,11 +90,15 @@ class Notifications {
         global $wpdb;
         $db = Database::instance();
         $table = $db->notifications_table;
+        $limit = max(1, min(100, $limit));
+        $offset = max(0, $offset);
+        $type = sanitize_key($type);
 
         $where = ['1=1'];
         $params = [];
 
-        if (!empty($type)) {
+        $allowed = ['info', 'success', 'warning', 'error'];
+        if ('' !== $type && in_array($type, $allowed, true)) {
             $where[] = 'type = %s';
             $params[] = $type;
         }

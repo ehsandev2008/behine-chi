@@ -34,6 +34,7 @@ class Before_After {
         if (!current_user_can('manage_options')) {
             wp_send_json_error(['message' => 'سطح دسترسی غیرمجاز است.'], 403);
         }
+        check_ajax_referer('wso_admin_nonce', 'nonce');
 
         $attachment_id = (int) ($_POST['attachment_id'] ?? 0);
         if (!$attachment_id) {

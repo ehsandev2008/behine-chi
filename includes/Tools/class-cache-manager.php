@@ -47,12 +47,24 @@ class Cache_Manager {
      * @return int Count of deleted files.
      */
     public function clear_generated_files(): int {
+        global $wpdb;
         $upload_dir = wp_upload_dir()['basedir'];
+        $upload_dir_norm = wp_normalize_path(trailingslashit($upload_dir));
         $count = 0;
 
         if (!is_dir($upload_dir)) {
             return $count;
         }
+
+        // Preload all main attached files once (avoids N+1 queries).
+        $attached = $wpdb->get_col("SELECT meta_value FROM {$wpdb->postmeta} WHERE meta_key = '_wp_attached_file'");
+        $main_map = [];
+        foreach ((array) $attached as $rel) {
+            $main_map[wp_normalize_path($upload_dir_norm . ltrim((string) $rel, '/'))] = true;
+        }
+
+        $started = microtime(true);
+        $max_seconds = 20;
 
         $iterator = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($upload_dir, \RecursiveDirectoryIterator::SKIP_DOTS),
@@ -60,12 +72,16 @@ class Cache_Manager {
         );
 
         foreach ($iterator as $item) {
+            // Time-box so huge uploads folders cannot timeout bulk requests.
+            if ((microtime(true) - $started) > $max_seconds) {
+                break;
+            }
             if ($item->isFile()) {
-                $pathname = $item->getPathname();
+                $pathname = wp_normalize_path($item->getPathname());
                 $ext = strtolower($item->getExtension());
                 
                 // Skip files in backup directory
-                if (str_contains($pathname, '/wso-backups/')) {
+                if (false !== strpos($pathname, '/wso-backups/')) {
                     continue;
                 }
                 
@@ -73,15 +89,8 @@ class Cache_Manager {
                 // (i.e., they are generated variants, not originals)
                 if (in_array($ext, ['webp', 'avif'], true)) {
                     // Check if this file is the main attachment file
-                    $relative_path = ltrim(str_replace($upload_dir, '', $pathname), '/\\');
-                    global $wpdb;
-                    $is_main = $wpdb->get_var($wpdb->prepare(
-                        "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = '_wp_attached_file' AND meta_value = %s",
-                        $relative_path
-                    ));
-                    
-                    if (!$is_main) {
-                        if (@unlink($pathname)) {
+                    if (!isset($main_map[$pathname])) {
+                        if (@unlink($item->getPathname())) {
                             $count++;
                         }
                     }

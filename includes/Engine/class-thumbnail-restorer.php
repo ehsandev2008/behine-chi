@@ -56,15 +56,53 @@ class Thumbnail_Restorer {
             }
 
             $thumb_file = $base_dir . '/' . $meta['sizes'][$size_key]['file'];
-            $thumb_backup = $backup_manager->get_backup_path($thumb_file);
-
-            if (file_exists($thumb_backup) && filesize($thumb_backup) > 0) {
-                if (@copy($thumb_backup, $thumb_file)) {
-                    $restored[] = $size_key;
-                } else {
-                    $failed[] = $size_key;
+            // Current meta may point to a converted .webp/.avif name while the
+            // backup was taken under the original .jpg/.png name. Try candidates.
+            $candidates = [$thumb_file];
+            $ti = pathinfo($thumb_file);
+            foreach (['jpg', 'jpeg', 'png', 'webp'] as $orig_ext) {
+                $alt = $ti['dirname'] . '/' . $ti['filename'] . '.' . $orig_ext;
+                if (!in_array($alt, $candidates, true)) {
+                    $candidates[] = $alt;
                 }
-            } else {
+            }
+            $restored_one = false;
+            foreach ($candidates as $candidate_current) {
+                $thumb_backup = $backup_manager->get_backup_path($candidate_current);
+                // Also try backup under the current (converted) name.
+                $backup_candidates = [$thumb_backup];
+                $bi = pathinfo($thumb_backup);
+                foreach (['jpg', 'jpeg', 'png'] as $be) {
+                    $balt = $bi['dirname'] . '/' . $bi['filename'] . '.' . $be;
+                    if (!in_array($balt, $backup_candidates, true)) {
+                        $backup_candidates[] = $balt;
+                    }
+                }
+                foreach ($backup_candidates as $backup_file) {
+                    if (file_exists($backup_file) && filesize($backup_file) > 0) {
+                        // Restore to the ORIGINAL filename (backup basename), then
+                        // point meta back to it so future optimizes find it.
+                        $restore_target = $base_dir . '/' . basename($backup_file);
+                        // If meta currently points to a converted name, also clean it.
+                        $converted_current = $thumb_file;
+                        if (@copy($backup_file, $restore_target)) {
+                            if (wp_normalize_path($converted_current) !== wp_normalize_path($restore_target) && file_exists($converted_current)) {
+                                @unlink($converted_current);
+                            }
+                            $meta['sizes'][$size_key]['file'] = basename($restore_target);
+                            $ext = strtolower(pathinfo($restore_target, PATHINFO_EXTENSION));
+                            $mime_map = ['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp', 'avif' => 'image/avif'];
+                            $meta['sizes'][$size_key]['mime-type'] = $mime_map[$ext] ?? 'image/jpeg';
+                            $restored[] = $size_key;
+                            $restored_one = true;
+                        } else {
+                            continue 2;
+                        }
+                        break 2;
+                    }
+                }
+            }
+            if (!$restored_one) {
                 $failed[] = $size_key;
             }
         }

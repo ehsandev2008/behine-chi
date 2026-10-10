@@ -69,6 +69,16 @@ class Plugin {
     }
 
     /**
+     * Prevent cloning of the singleton.
+     */
+    private function __clone() {}
+
+    /**
+     * Prevent unserializing of the singleton.
+     */
+    public function __wakeup() {}
+
+    /**
      * Initialize core components.
      *
      * @return void
@@ -98,6 +108,7 @@ class Plugin {
      */
     private function init_hooks(): void {
         add_action('init', [$this, 'load_textdomain']);
+        add_action('admin_init', [$this, 'maybe_migrate_database']);
 
         if (is_admin()) {
             if (class_exists('WSO\\Admin\\Admin_Menu')) {
@@ -149,37 +160,23 @@ class Plugin {
             }
 
             // Injects dynamic CSS Customizer & local fonts into the admin header
-            add_action('admin_head', function(): void {
-                if (class_exists('WSO\\Tools\\Font_Manager')) {
-                    \WSO\Tools\Font_Manager::instance()->generate_font_face_css();
-                }
-                if (class_exists('WSO\\Admin\\Admin_Menu')) {
-                    \WSO\Admin\Admin_Menu::instance()->output_customizer_css();
-                }
-            });
+            add_action('admin_head', [$this, 'output_admin_head_css']);
 
             // Registers notifications badge count in the WordPress top admin bar
-            add_action('admin_bar_menu', function(\WP_Admin_Bar $wp_admin_bar): void {
-                if (class_exists('WSO\\Tools\\Notifications')) {
-                    $unread = \WSO\Tools\Notifications::instance()->get_unread_count();
-                    $badge = $unread > 0 ? ' <span class="ab-item-notification-badge" style="background:#ef4444;color:#fff;border-radius:10px;padding:1px 6px;font-size:10px;margin-right:6px;font-weight:bold;">' . $unread . '</span>' : '';
-                    
-                    $wp_admin_bar->add_node([
-                        'id'    => 'wso-notifications-bar',
-                        'title' => 'بهینه چی' . $badge,
-                        'href'  => admin_url('upload.php?page=wso-settings#tab-notifications'),
-                        'meta'  => [
-                            'title' => 'وضعیت و اعلان‌های افزونه بهینه چی',
-                        ],
-                    ]);
-                }
-            }, 99);
+            add_action('admin_bar_menu', [$this, 'add_admin_bar_node'], 99);
         }
 
         // Automatic Alt Text must also run for uploads handled outside wp-admin
         // (REST API, frontend forms). The class itself stays idle when disabled.
+        // Single instantiation covers both admin and frontend (singleton).
         if (class_exists('WSO\\Tools\\Auto_Alt')) {
             Tools\Auto_Alt::instance();
+        }
+
+        // Async queue processor must also load on frontend/cron requests so
+        // WP-Cron and REST-triggered batches work outside wp-admin.
+        if (class_exists('WSO\\Queue\\Async_Processor')) {
+            Queue\Async_Processor::instance();
         }
 
         // Frontend + shared components (must run outside is_admin):
@@ -239,11 +236,66 @@ class Plugin {
     }
 
     /**
+     * Outputs admin head CSS (fonts + customizer) via named callback so it is removable.
+     *
+     * @return void
+     */
+    public function output_admin_head_css(): void {
+        if (class_exists('WSO\\Tools\\Font_Manager')) {
+            \WSO\Tools\Font_Manager::instance()->generate_font_face_css();
+        }
+        if (class_exists('WSO\\Admin\\Admin_Menu')) {
+            \WSO\Admin\Admin_Menu::instance()->output_customizer_css();
+        }
+    }
+
+    /**
+     * Adds notifications node to the admin bar via named callback so it is removable.
+     *
+     * @param \WP_Admin_Bar $wp_admin_bar Admin bar instance.
+     * @return void
+     */
+    public function add_admin_bar_node(\WP_Admin_Bar $wp_admin_bar): void {
+        if (!class_exists('WSO\\Tools\\Notifications')) {
+            return;
+        }
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        $unread = (int) \WSO\Tools\Notifications::instance()->get_unread_count();
+        $badge = $unread > 0 ? ' <span class="ab-item-notification-badge">' . esc_html(number_format_i18n($unread)) . '</span>' : '';
+
+        $wp_admin_bar->add_node([
+            'id'    => 'wso-notifications-bar',
+            'title' => esc_html__('بهینه چی', 'behinechi-optimizer') . $badge,
+            'href'  => admin_url('upload.php?page=wso-settings#tab-notifications'),
+            'meta'  => [
+                'title' => esc_attr__('وضعیت و اعلان‌های افزونه بهینه چی', 'behinechi-optimizer'),
+            ],
+        ]);
+    }
+
+    /**
+     * Migrates database tables when plugin version changes.
+     *
+     * @return void
+     */
+    public function maybe_migrate_database(): void {
+        if (class_exists('WSO\\Core\\Database')) {
+            Core\Database::instance()->maybe_migrate();
+        }
+    }
+
+    /**
      * Plugin activation hook.
      *
      * @return void
      */
     public static function activate(): void {
+        if (version_compare(PHP_VERSION, '7.4.0', '<')) {
+            deactivate_plugins(plugin_basename(WSO_FILE));
+            wp_die(esc_html__('افزونه بهینه چی به PHP نسخه 7.4 یا بالاتر نیاز دارد.', 'behinechi-optimizer'));
+        }
         if (class_exists('WSO\\Core\\Database')) {
             Core\Database::instance()->create_tables();
         }

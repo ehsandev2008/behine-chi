@@ -26,16 +26,10 @@ class Dashboard_Widgets {
         $db = Database::instance();
         $logs_table = $db->logs_table;
 
-        // Total media attachments
-        $args = [
-            'post_type'      => 'attachment',
-            'post_status'    => 'inherit',
-            'post_mime_type' => ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'],
-            'posts_per_page' => -1,
-            'fields'         => 'ids',
-        ];
-        $query = new \WP_Query($args);
-        $total_images = count($query->posts);
+        // Total media attachments (direct count to avoid loading all IDs into memory).
+        $total_images = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'attachment' AND post_mime_type IN ('image/jpeg','image/png','image/webp','image/svg+xml')"
+        );
 
         // Sum original and optimized sizes from logs table (deduplicated by file_name)
         // Use MAX() per file_name to be compatible with ONLY_FULL_GROUP_BY

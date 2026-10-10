@@ -62,9 +62,10 @@ class Auto_Scan {
         $args = [
             'post_type'      => 'attachment',
             'post_status'    => 'inherit',
-            'post_mime_type' => ['image/jpeg', 'image/png', 'image/webp'],
+            'post_mime_type' => ['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/svg+xml'],
             'posts_per_page' => 10,
             'fields'         => 'ids',
+            'no_found_rows'  => true,
             'meta_query'     => [
                 [
                     'key'     => '_wso_optimized',
@@ -108,8 +109,14 @@ class Auto_Scan {
 
     /**
      * Run auto-optimize for a single attachment.
+     *
+     * @param mixed $attachment_id Attachment ID (cast defensively).
      */
-    public function run_auto_optimize(int $attachment_id): void {
+    public function run_auto_optimize($attachment_id): void {
+        $attachment_id = (int) $attachment_id;
+        if ($attachment_id <= 0) {
+            return;
+        }
         $settings = \WSO\Core\Settings::instance();
 
         if (!$settings->get('wso_auto_optimize', 1)) {

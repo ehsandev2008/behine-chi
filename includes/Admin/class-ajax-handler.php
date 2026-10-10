@@ -145,7 +145,13 @@ class Ajax_Handler {
         foreach ($number_fields as $field) {
             if (isset($form_data[$field])) {
                 $val = (int) $form_data[$field];
-                if ('wso_watermark_opacity' === $field) {
+                if ('wso_quality' === $field) {
+                    $val = max(1, min(100, $val));
+                } elseif ('wso_max_size' === $field) {
+                    $val = max(1, min(100, $val));
+                } elseif ('wso_max_width' === $field || 'wso_max_height' === $field) {
+                    $val = max(0, min(8000, $val));
+                } elseif ('wso_watermark_opacity' === $field) {
                     $val = max(1, min(100, $val));
                 } elseif ('wso_watermark_margin' === $field) {
                     $val = max(0, min(200, $val));
@@ -207,7 +213,42 @@ class Ajax_Handler {
 
         foreach ($text_fields as $field) {
             if (isset($form_data[$field])) {
-                $settings_obj->set($field, sanitize_text_field($form_data[$field]));
+                $raw = (string) $form_data[$field];
+                if (str_starts_with($field, 'wso_color_')) {
+                    $c = sanitize_hex_color($raw);
+                    if ($c) {
+                        $settings_obj->set($field, $c);
+                    }
+                    continue;
+                }
+                if (in_array($field, ['wso_border_radius', 'wso_font_size', 'wso_spacing'], true)) {
+                    $v = sanitize_text_field($raw);
+                    if (preg_match('/^\d+(\.\d+)?(px|em|rem|%)$/', trim($v))) {
+                        $settings_obj->set($field, trim($v));
+                    }
+                    continue;
+                }
+                if ('wso_shadow' === $field) {
+                    $v = sanitize_text_field($raw);
+                    if (strlen($v) <= 200 && !preg_match('/[<>]/', $v)) {
+                        $settings_obj->set($field, $v);
+                    }
+                    continue;
+                }
+                if ('wso_slack_webhook' === $field) {
+                    $v = esc_url_raw(trim($raw));
+                    $settings_obj->set($field, ('' === $v || str_starts_with($v, 'https://hooks.slack.com/')) ? $v : '');
+                    continue;
+                }
+                if ('wso_admin_font' === $field) {
+                    $allowed_fonts = ['Vazir', 'IRANSansX', 'IRANYekanX', 'Vazirmatn', 'Tahoma'];
+                    $v = sanitize_text_field($raw);
+                    if (in_array($v, $allowed_fonts, true)) {
+                        $settings_obj->set($field, $v);
+                    }
+                    continue;
+                }
+                $settings_obj->set($field, sanitize_text_field($raw));
             }
         }
 
@@ -349,8 +390,9 @@ class Ajax_Handler {
     public function handle_run_health_fix(): void {
         $this->verify_security();
         $fix_action = sanitize_key($_POST['fix_action'] ?? '');
-        if (empty($fix_action)) {
-            wp_send_json_error(['message' => 'نوع تعمیر مشخص نشده است.']);
+        $allowed = ['create_folders', 'clear_cache', 'rebuild_config', 'reset_permissions'];
+        if (empty($fix_action) || !in_array($fix_action, $allowed, true)) {
+            wp_send_json_error(['message' => 'نوع تعمیر مشخص نشده یا نامعتبر است.']);
         }
 
         $success = \WSO\Tools\Health_Check::instance()->repair($fix_action);
@@ -398,7 +440,17 @@ class Ajax_Handler {
      */
     public function handle_delete_unused(): void {
         $this->verify_security();
-        $ids = array_map('intval', $_POST['ids'] ?? []);
+        $raw_ids = $_POST['ids'] ?? [];
+        if (!is_array($raw_ids)) {
+            wp_send_json_error(['message' => 'فرمت شناسه‌ها نامعتبر است.']);
+        }
+        $ids = array_values(array_filter(array_map('intval', $raw_ids), static function ($id) {
+            return $id > 0;
+        }));
+        $ids = array_slice($ids, 0, 100);
+        if (empty($ids)) {
+            wp_send_json_error(['message' => 'هیچ شناسه معتبری ارسال نشده است.']);
+        }
         $cleaner = \WSO\Tools\Unused_Cleaner::instance();
         $result = $cleaner->delete_unused($ids);
         wp_send_json_success($result);
@@ -419,6 +471,16 @@ class Ajax_Handler {
         $this->verify_security();
         $attachment_id = (int) ($_POST['attachment_id'] ?? 0);
         $target_format = sanitize_key($_POST['target_format'] ?? 'webp');
+        $allowed = ['webp', 'avif', 'png', 'jpeg', 'jpg'];
+        if (!in_array($target_format, $allowed, true)) {
+            wp_send_json_error(['message' => 'فرمت هدف نامعتبر است.']);
+        }
+        if ('jpg' === $target_format) {
+            $target_format = 'jpeg';
+        }
+        if ($attachment_id <= 0 || !get_post($attachment_id)) {
+            wp_send_json_error(['message' => 'شناسه تصویر نامعتبر است.']);
+        }
         $quality = max(1, min(100, (int) ($_POST['quality'] ?? 85)));
 
         $converter = \WSO\Engine\Format_Converter::instance();

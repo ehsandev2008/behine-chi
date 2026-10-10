@@ -45,24 +45,55 @@ if (defined('WP_CLI') && WP_CLI) {
          * @param array $assoc_args
          */
         public function optimize(array $args, array $assoc_args): void {
-            $batch_size = (int) ($assoc_args['batch-size'] ?? 5);
+            $batch_size = max(1, min(20, (int) ($assoc_args['batch-size'] ?? 5)));
             $format = sanitize_key($assoc_args['format'] ?? 'webp');
+            $allowed_formats = ['webp', 'avif', 'both'];
+            if (!in_array($format, $allowed_formats, true)) {
+                \WP_CLI::warning('فرمت نامعتبر؛ از webp استفاده می‌شود.');
+                $format = 'webp';
+            }
             $force = isset($assoc_args['force']);
-
+            // Apply requested format to settings for this run (restored afterwards).
             $settings = \WSO\Core\Settings::instance();
+            $orig_webp = $settings->get('wso_convert_webp', 1);
+            $orig_avif = $settings->get('wso_convert_avif', 0);
+            if ('webp' === $format) {
+                $settings->set('wso_convert_webp', 1);
+                $settings->set('wso_convert_avif', 0);
+            } elseif ('avif' === $format) {
+                $settings->set('wso_convert_avif', 1);
+            } elseif ('both' === $format) {
+                $settings->set('wso_convert_webp', 1);
+                $settings->set('wso_convert_avif', 1);
+            }
+
             $optimizer = \WSO\Engine\Optimizer::instance();
 
             \WP_CLI::log('شروع بهینه‌سازی دسته‌ای تصاویر...');
 
-            $query = new \WP_Query([
-                'post_type'      => 'attachment',
-                'post_status'    => 'inherit',
-                'post_mime_type' => ['image/jpeg', 'image/png', 'image/webp'],
-                'posts_per_page' => -1,
-                'fields'         => 'ids',
-            ]);
+            $total = 0;
+            $offset = 0;
+            $page_size = 200;
+            $ids_all = [];
+            do {
+                $query = new \WP_Query([
+                    'post_type'      => 'attachment',
+                    'post_status'    => 'inherit',
+                    'post_mime_type' => ['image/jpeg', 'image/png', 'image/webp'],
+                    'posts_per_page' => $page_size,
+                    'offset'         => $offset,
+                    'fields'         => 'ids',
+                    'no_found_rows'  => true,
+                ]);
+                $page_ids = $query->posts ?: [];
+                foreach ($page_ids as $pid) {
+                    $ids_all[] = (int) $pid;
+                }
+                $offset += $page_size;
+                wp_reset_postdata();
+            } while (!empty($page_ids) && count($ids_all) < 20000);
 
-            $total = count($query->posts);
+            $total = count($ids_all);
             \WP_CLI::log('تعداد کل تصاویر: ' . $total);
 
             if ($total === 0) {
@@ -77,7 +108,7 @@ if (defined('WP_CLI') && WP_CLI) {
             $failed = 0;
             $skipped = 0;
 
-            foreach ($query->posts as $attachment_id) {
+            foreach ($ids_all as $attachment_id) {
                 if (!$force && get_post_meta($attachment_id, '_wso_optimized', true)) {
                     $skipped++;
                     $progress->tick();
@@ -105,6 +136,10 @@ if (defined('WP_CLI') && WP_CLI) {
             }
 
             $progress->finish();
+
+            // Restore original format settings.
+            $settings->set('wso_convert_webp', $orig_webp);
+            $settings->set('wso_convert_avif', $orig_avif);
 
             \WP_CLI::success("پردازش کامل شد!");
             \WP_CLI::log('موفق: ' . $success);
@@ -160,14 +195,20 @@ if (defined('WP_CLI') && WP_CLI) {
             \WP_CLI::log('امتیاز کلی: ' . $report['score'] . '%');
             \WP_CLI::log('وضعیت: ' . $report['status_text']);
 
-            foreach ($report as $category => $items) {
+        foreach ($report as $category => $items) {
                 if (!is_array($items)) {
+                    continue;
+                }
+                if (in_array($category, ['score', 'status', 'status_text'], true)) {
                     continue;
                 }
                 \WP_CLI::log('--- ' . $category . ' ---');
                 foreach ($items as $key => $check) {
-                    $status_icon = $check['status'] === 'success' ? '✓' : ($check['status'] === 'warning' ? '!' : '✗');
-                    \WP_CLI::log($status_icon . ' ' . $check['label'] . ': ' . $check['value']);
+                    if (!is_array($check)) {
+                        continue;
+                    }
+                    $status_icon = ($check['status'] ?? '') === 'success' ? '✓' : ((($check['status'] ?? '') === 'warning') ? '!' : '✗');
+                    \WP_CLI::log($status_icon . ' ' . ($check['label'] ?? $key) . ': ' . ($check['value'] ?? ''));
                 }
             }
         }

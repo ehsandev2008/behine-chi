@@ -33,14 +33,14 @@ class On_The_Fly {
      * Check if browser supports WebP.
      */
     public function browser_supports_webp(): bool {
-        return isset($_SERVER['HTTP_ACCEPT']) && str_contains($_SERVER['HTTP_ACCEPT'], 'image/webp');
+        return isset($_SERVER['HTTP_ACCEPT']) && false !== strpos((string) $_SERVER['HTTP_ACCEPT'], 'image/webp');
     }
 
     /**
      * Check if browser supports AVIF.
      */
     public function browser_supports_avif(): bool {
-        return isset($_SERVER['HTTP_ACCEPT']) && str_contains($_SERVER['HTTP_ACCEPT'], 'image/avif');
+        return isset($_SERVER['HTTP_ACCEPT']) && false !== strpos((string) $_SERVER['HTTP_ACCEPT'], 'image/avif');
     }
 
     /**
@@ -79,12 +79,26 @@ class On_The_Fly {
             return str_replace($info['basename'], basename($converted), $url);
         }
 
-        // Try to convert on-the-fly
+        // Try to convert on-the-fly (only if driver supports it; never on huge files).
         $optimizer = Optimizer::instance();
         $driver = $optimizer->get_driver();
-        $quality = (int) $settings->get('wso_quality', 75);
+        if (('avif' === $preferred && !$driver->supports_avif()) || ('webp' === $preferred && !$driver->supports_webp())) {
+            return $url;
+        }
+        if (filesize($file) > 5 * 1024 * 1024) {
+            return $url;
+        }
+        $quality = max(1, min(100, (int) $settings->get('wso_quality', 75)));
 
-        if ($driver->convert($file, $converted, 'image/' . $preferred, $quality)) {
+        // Lock to avoid concurrent encodes of the same file.
+        $lock = $converted . '.lock';
+        if (file_exists($lock) && (time() - (int) @filemtime($lock)) < 120) {
+            return $url;
+        }
+        @touch($lock);
+        $ok = $driver->convert($file, $converted, 'image/' . $preferred, $quality);
+        @unlink($lock);
+        if ($ok) {
             return str_replace($info['basename'], basename($converted), $url);
         }
 
@@ -110,25 +124,60 @@ class On_The_Fly {
         $settings = \WSO\Core\Settings::instance();
         $preferred = $this->browser_supports_avif() && $settings->get('wso_convert_avif', 0) ? 'avif' : 'webp';
 
-        $new_sources = [];
-        foreach ($sources as $source) {
-            $new_sources[] = $source;
+        $optimizer = Optimizer::instance();
+        $driver = $optimizer->get_driver();
+        if (('avif' === $preferred && !$driver->supports_avif()) || ('webp' === $preferred && !$driver->supports_webp())) {
+            return $sources;
+        }
 
-            $file = get_attached_file($attachment_id);
-            if (!$file) {
+        $main_file = get_attached_file($attachment_id);
+        $upload_dir = wp_upload_dir();
+        $basedir = wp_normalize_path(trailingslashit($upload_dir['basedir']));
+        $baseurl = trailingslashit($upload_dir['baseurl']);
+
+        $new_sources = [];
+        foreach ($sources as $width_key => $source) {
+            $new_sources[$width_key] = $source;
+
+            // Resolve the actual file for THIS srcset entry from image_meta when possible.
+            $meta_file = '';
+            if (!empty($image_meta['sizes'])) {
+                foreach ($image_meta['sizes'] as $size_data) {
+                    if (!empty($size_data['file']) && !empty($source['url']) && false !== strpos($source['url'], basename($size_data['file']))) {
+                        $meta_file = $size_data['file'];
+                        break;
+                    }
+                }
+            }
+            $candidate_base = $main_file;
+            if ('' !== $meta_file && $main_file) {
+                $candidate_base = dirname($main_file) . '/' . basename($meta_file);
+            }
+            if (!$candidate_base || !file_exists($candidate_base)) {
                 continue;
             }
 
-            $info = pathinfo($file);
+            $info = pathinfo($candidate_base);
             $converted = $info['dirname'] . '/' . $info['filename'] . '.' . $preferred;
 
             if (file_exists($converted)) {
-                $converted_url = str_replace($info['basename'], basename($converted), $source['url']);
-                $new_sources[] = [
-                    'url'        => $converted_url,
-                    'descriptor' => $source['descriptor'],
-                    'value'      => $source['value'],
-                ];
+                $norm = wp_normalize_path($converted);
+                $converted_url = (0 === strpos($norm, $basedir)) ? $baseurl . ltrim(substr($norm, strlen($basedir)), '/') : str_replace($info['basename'], basename($converted), $source['url']);
+                // Avoid duplicate entries.
+                $exists = false;
+                foreach ($new_sources as $existing) {
+                    if (($existing['url'] ?? '') === $converted_url) {
+                        $exists = true;
+                        break;
+                    }
+                }
+                if (!$exists) {
+                    $new_sources[] = [
+                        'url'        => $converted_url,
+                        'descriptor' => $source['descriptor'],
+                        'value'      => $source['value'],
+                    ];
+                }
             }
         }
 
@@ -137,6 +186,8 @@ class On_The_Fly {
 
     /**
      * Maybe serve converted image directly via rewrite.
+     * Gated: only when on-the-fly is enabled AND driver supports the format,
+     * with per-IP rate limiting to prevent disk-fill DoS by ID enumeration.
      */
     public function maybe_serve_converted(): void {
         if (is_admin()) {
@@ -152,14 +203,29 @@ class On_The_Fly {
         }
 
         $attachment_id = (int) $_GET['wso_convert'];
+        if ($attachment_id <= 0) {
+            return;
+        }
         $format = sanitize_key($_GET['format'] ?? 'webp');
 
         if (!in_array($format, ['webp', 'avif'], true)) {
             return;
         }
 
+        // Simple rate limit: max 20 conversions per IP per 5 minutes.
+        $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+        $rate_key = 'wso_otf_' . md5($ip);
+        $count = (int) get_transient($rate_key);
+        if ($count >= 20) {
+            status_header(429);
+            exit;
+        }
+
         $file = get_attached_file($attachment_id);
         if (!$file || !file_exists($file)) {
+            return;
+        }
+        if (filesize($file) > 5 * 1024 * 1024) {
             return;
         }
 
@@ -170,11 +236,22 @@ class On_The_Fly {
             $settings = \WSO\Core\Settings::instance();
             $optimizer = Optimizer::instance();
             $driver = $optimizer->get_driver();
-            $quality = (int) $settings->get('wso_quality', 75);
-
-            if (!$driver->convert($file, $converted, 'image/' . $format, $quality)) {
+            if (('avif' === $format && !$driver->supports_avif()) || ('webp' === $format && !$driver->supports_webp())) {
                 return;
             }
+            $quality = max(1, min(100, (int) $settings->get('wso_quality', 75)));
+
+            $lock = $converted . '.lock';
+            if (file_exists($lock) && (time() - (int) @filemtime($lock)) < 120) {
+                return;
+            }
+            @touch($lock);
+            $ok = $driver->convert($file, $converted, 'image/' . $format, $quality);
+            @unlink($lock);
+            if (!$ok) {
+                return;
+            }
+            set_transient($rate_key, $count + 1, 5 * MINUTE_IN_SECONDS);
         }
 
         $mime = 'image/' . $format;

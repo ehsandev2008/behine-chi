@@ -45,6 +45,9 @@ class PDF_Report {
      * Generate HTML report (fallback).
      */
     private function generate_html(array $stats, array $engine): void {
+        if (headers_sent()) {
+            return;
+        }
         header('Content-Type: text/html; charset=utf-8');
         header('Content-Disposition: attachment; filename="wso-report-' . date('Y-m-d') . '.html"');
         ?>
@@ -64,14 +67,14 @@ class PDF_Report {
         </head>
         <body>
             <h1>گزارش بهینه‌سازی بهینه چی</h1>
-            <p>تاریخ صدور: <?php echo date_i18n('Y/m/d H:i'); ?></p>
+            <p>تاریخ صدور: <?php echo esc_html(date_i18n('Y/m/d H:i')); ?></p>
 
             <h2>آمار کلی</h2>
-            <div class="stat-box">کل تصاویر: <strong><?php echo $stats['total_images']; ?></strong></div>
-            <div class="stat-box">بهینه‌شده: <strong><?php echo $stats['optimized_images']; ?></strong></div>
-            <div class="stat-box">صرفه‌جویی: <strong><?php echo $stats['saved_size']; ?></strong></div>
-            <div class="stat-box">WebP: <strong><?php echo $stats['webp_count']; ?></strong></div>
-            <div class="stat-box">AVIF: <strong><?php echo $stats['avif_count']; ?></strong></div>
+            <div class="stat-box">کل تصاویر: <strong><?php echo esc_html((string) ($stats['total_images'] ?? 0)); ?></strong></div>
+            <div class="stat-box">بهینه‌شده: <strong><?php echo esc_html((string) ($stats['optimized_images'] ?? 0)); ?></strong></div>
+            <div class="stat-box">صرفه‌جویی: <strong><?php echo esc_html((string) ($stats['saved_size'] ?? '')); ?></strong></div>
+            <div class="stat-box">WebP: <strong><?php echo esc_html((string) ($stats['webp_count'] ?? 0)); ?></strong></div>
+            <div class="stat-box">AVIF: <strong><?php echo esc_html((string) ($stats['avif_count'] ?? 0)); ?></strong></div>
 
             <h2>مقایسه موتورها</h2>
             <table>
@@ -84,17 +87,17 @@ class PDF_Report {
                 </tr>
                 <tr>
                     <td>Imagick</td>
-                    <td><?php echo $engine['imagick']['count']; ?></td>
-                    <td><?php echo $engine['imagick']['avg_savings']; ?>٪</td>
-                    <td><?php echo size_format($engine['imagick']['avg_original'], 2); ?></td>
-                    <td><?php echo size_format($engine['imagick']['avg_optimized'], 2); ?></td>
+                    <td><?php echo esc_html((string) ($engine['imagick']['count'] ?? 0)); ?></td>
+                    <td><?php echo esc_html((string) ($engine['imagick']['avg_savings'] ?? 0)); ?>٪</td>
+                    <td><?php echo esc_html(size_format((int) ($engine['imagick']['avg_original'] ?? 0), 2)); ?></td>
+                    <td><?php echo esc_html(size_format((int) ($engine['imagick']['avg_optimized'] ?? 0), 2)); ?></td>
                 </tr>
                 <tr>
                     <td>GD</td>
-                    <td><?php echo $engine['gd']['count']; ?></td>
-                    <td><?php echo $engine['gd']['avg_savings']; ?>٪</td>
-                    <td><?php echo size_format($engine['gd']['avg_original'], 2); ?></td>
-                    <td><?php echo size_format($engine['gd']['avg_optimized'], 2); ?></td>
+                    <td><?php echo esc_html((string) ($engine['gd']['count'] ?? 0)); ?></td>
+                    <td><?php echo esc_html((string) ($engine['gd']['avg_savings'] ?? 0)); ?>٪</td>
+                    <td><?php echo esc_html(size_format((int) ($engine['gd']['avg_original'] ?? 0), 2)); ?></td>
+                    <td><?php echo esc_html(size_format((int) ($engine['gd']['avg_optimized'] ?? 0), 2)); ?></td>
                 </tr>
             </table>
         </body>
@@ -108,6 +111,9 @@ class PDF_Report {
      */
     private function generate_tcpdf(array $stats, array $engine): void {
         $pdf = new \TCPDF('P', 'mm', 'A4', true, 'UTF-8', false);
+        try {
+            $pdf->setRTL(true);
+        } catch (\Throwable $e) {}
         $pdf->AddPage();
         $pdf->SetFont('dejavusans', '', 12);
 
@@ -121,15 +127,15 @@ class PDF_Report {
     private function get_report_html(array $stats, array $engine): string {
         return '
         <h1 style="color:#3b82f6">گزارش بهینه‌سازی بهینه چی</h1>
-        <p>تاریخ صدور: ' . date_i18n('Y/m/d H:i') . '</p>
+        <p>تاریخ صدور: ' . esc_html(date_i18n('Y/m/d H:i')) . '</p>
         <hr>
         <h2>آمار کلی</h2>
         <table border="1" cellpadding="5">
-            <tr><td>کل تصاویر</td><td><strong>' . $stats['total_images'] . '</strong></td></tr>
-            <tr><td>بهینه‌شده</td><td><strong>' . $stats['optimized_images'] . '</strong></td></tr>
-            <tr><td>صرفه‌جویی</td><td><strong>' . $stats['saved_size'] . '</strong></td></tr>
-            <tr><td>WebP</td><td><strong>' . $stats['webp_count'] . '</strong></td></tr>
-            <tr><td>AVIF</td><td><strong>' . $stats['avif_count'] . '</strong></td></tr>
+            <tr><td>کل تصاویر</td><td><strong>' . esc_html((string) ($stats['total_images'] ?? 0)) . '</strong></td></tr>
+            <tr><td>بهینه‌شده</td><td><strong>' . esc_html((string) ($stats['optimized_images'] ?? 0)) . '</strong></td></tr>
+            <tr><td>صرفه‌جویی</td><td><strong>' . esc_html((string) ($stats['saved_size'] ?? '')) . '</strong></td></tr>
+            <tr><td>WebP</td><td><strong>' . esc_html((string) ($stats['webp_count'] ?? 0)) . '</strong></td></tr>
+            <tr><td>AVIF</td><td><strong>' . esc_html((string) ($stats['avif_count'] ?? 0)) . '</strong></td></tr>
         </table>';
     }
 }

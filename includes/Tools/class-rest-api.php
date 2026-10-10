@@ -86,13 +86,16 @@ class REST_API {
      * Check API permission.
      */
     public function check_permission(\WP_REST_Request $request): bool {
-        $api_key = $request->get_header('X-WSO-API-Key');
-        $stored_key = \WSO\Core\Settings::instance()->get('wso_api_key', '');
+        $api_key = (string) $request->get_header('X-WSO-API-Key');
+        $stored_key = (string) \WSO\Core\Settings::instance()->get('wso_api_key', '');
 
-        if (empty($stored_key)) {
+        if ('' === trim($stored_key)) {
             return current_user_can('manage_options');
         }
 
+        if ('' === $api_key) {
+            return false;
+        }
         return hash_equals($stored_key, $api_key);
     }
 
@@ -109,6 +112,9 @@ class REST_API {
      */
     public function optimize_attachment(\WP_REST_Request $request): \WP_REST_Response {
         $attachment_id = (int) $request['id'];
+        if ($attachment_id <= 0 || !get_post($attachment_id)) {
+            return new \WP_REST_Response(['success' => false, 'message' => 'شناسه تصویر نامعتبر است.'], 404);
+        }
         $result = \WSO\Engine\Optimizer::instance()->optimize_attachment($attachment_id);
 
         return new \WP_REST_Response([
@@ -141,9 +147,10 @@ class REST_API {
      * Process a batch from the queue.
      */
     public function process_batch(\WP_REST_Request $request): \WP_REST_Response {
-        $batch_size = (int) $request->get_param('batch_size', 5);
-        $batch_size = max(1, min(20, $batch_size));
+        $batch_size = (int) $request->get_param('batch_size', 3);
+        $batch_size = max(1, min(5, $batch_size));
 
+        @set_time_limit(120);
         $manager = \WSO\Queue\Queue_Manager::instance();
         $optimizer = \WSO\Engine\Optimizer::instance();
         $items = $manager->get_pending_batch($batch_size);
@@ -157,24 +164,35 @@ class REST_API {
         }
 
         $results = [];
+        $batch_start = microtime(true);
         foreach ($items as $item) {
-            $manager->update_status($item['id'], 'processing');
+            if ((microtime(true) - $batch_start) > 25) {
+                break;
+            }
+            $manager->update_status((int) $item['id'], 'processing');
 
             $attachment_id = (int) $item['attachment_id'];
-            $file_path = $item['file_path'];
+            $file_path = (string) $item['file_path'];
 
-            if ($attachment_id > 0) {
-                $res = $optimizer->optimize_attachment($attachment_id);
-            } else {
-                $res = $optimizer->optimize_file($file_path);
+            try {
+                if ($attachment_id > 0) {
+                    $res = $optimizer->optimize_attachment($attachment_id);
+                } else {
+                    $res = $optimizer->optimize_file($file_path);
+                }
+            } catch (\Throwable $e) {
+                $res = ['status' => Logger::STATUS_ERROR, 'message' => $e->getMessage()];
             }
 
-            $manager->update_status($item['id'], $res['status'], $res['message'] ?? '');
+            $manager->update_status((int) $item['id'], $res['status'] ?? Logger::STATUS_ERROR, isset($res['message']) ? substr((string) $res['message'], 0, 500) : '');
             $results[] = [
-                'id'      => $item['id'],
-                'status'  => $res['status'],
+                'id'      => (int) $item['id'],
+                'status'  => $res['status'] ?? Logger::STATUS_ERROR,
                 'message' => $res['message'] ?? '',
             ];
+            if (function_exists('gc_collect_cycles')) {
+                gc_collect_cycles();
+            }
         }
 
         return new \WP_REST_Response([
@@ -190,9 +208,13 @@ class REST_API {
      * Get optimization logs.
      */
     public function get_logs(\WP_REST_Request $request): \WP_REST_Response {
-        $page = (int) $request->get_param('page', 1);
-        $limit = (int) $request->get_param('limit', 20);
-        $status = sanitize_text_field($request->get_param('status', ''));
+        $page = max(1, (int) $request->get_param('page', 1));
+        $limit = max(1, min(100, (int) $request->get_param('limit', 20)));
+        $status = sanitize_key((string) $request->get_param('status', ''));
+        $allowed_status = ['success', 'warning', 'error', 'skipped', ''];
+        if (!in_array($status, $allowed_status, true)) {
+            $status = '';
+        }
 
         $logs = Logger::get_logs($limit, ($page - 1) * $limit, $status);
         $total = Logger::get_count($status);

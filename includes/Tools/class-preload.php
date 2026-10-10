@@ -41,14 +41,18 @@ class Preload {
         }
 
         // Get featured image for singular posts
+        $preloaded = [];
         if (is_singular()) {
             $thumbnail_id = get_post_thumbnail_id();
             if ($thumbnail_id) {
-                $this->preload_attachment($thumbnail_id);
+                $url = $this->preload_attachment($thumbnail_id);
+                if ($url) {
+                    $preloaded[$url] = true;
+                }
             }
         }
 
-        // Get content images (first 5)
+        // Get content images (first 5, deduplicated)
         global $post;
         if (!empty($post->post_content)) {
             preg_match_all('/<img[^>]+src=["\']([^"\']+)["\'][^>]*>/i', $post->post_content, $matches);
@@ -58,8 +62,13 @@ class Preload {
                     if ($count >= 5) {
                         break;
                     }
-                    $this->preload_image_url($src);
-                    $count++;
+                    if (isset($preloaded[$src])) {
+                        continue;
+                    }
+                    if ($this->preload_image_url($src)) {
+                        $preloaded[$src] = true;
+                        $count++;
+                    }
                 }
             }
         }
@@ -67,20 +76,23 @@ class Preload {
 
     /**
      * Preload a specific attachment.
+     *
+     * @return string Preloaded URL or empty.
      */
-    private function preload_attachment(int $attachment_id): void {
+    private function preload_attachment(int $attachment_id): string {
         $file = get_attached_file($attachment_id);
         if (!$file) {
-            return;
+            return '';
         }
 
         $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
         if (in_array($ext, ['webp', 'avif'], true)) {
             $url = wp_get_attachment_url($attachment_id);
             if ($url) {
-                echo '<link rel="preload" as="image" href="' . esc_url($url) . '" type="image/' . $ext . '">' . "\n";
+                echo '<link rel="preload" as="image" fetchpriority="high" href="' . esc_url($url) . '" type="image/' . esc_attr($ext) . '">' . "\n";
+                return $url;
             }
-            return;
+            return '';
         }
 
         // Try to find WebP/AVIF version
@@ -93,9 +105,9 @@ class Preload {
             $avif = $info['dirname'] . '/' . $info['filename'] . '.avif';
             if (file_exists($avif)) {
                 $norm = wp_normalize_path($avif);
-                $url = str_starts_with($norm, $basedir) ? $upload_dir['baseurl'] . substr($norm, strlen($basedir)) : wp_get_attachment_url($attachment_id);
-                echo '<link rel="preload" as="image" href="' . esc_url($url) . '" type="image/avif">' . "\n";
-                return;
+                $url = (0 === strpos($norm, $basedir)) ? trailingslashit($upload_dir['baseurl']) . ltrim(substr($norm, strlen($basedir)), '/') : (string) wp_get_attachment_url($attachment_id);
+                echo '<link rel="preload" as="image" fetchpriority="high" href="' . esc_url($url) . '" type="image/avif">' . "\n";
+                return $url;
             }
         }
 
@@ -103,19 +115,28 @@ class Preload {
             $webp = $info['dirname'] . '/' . $info['filename'] . '.webp';
             if (file_exists($webp)) {
                 $norm = wp_normalize_path($webp);
-                $url = str_starts_with($norm, $basedir) ? $upload_dir['baseurl'] . substr($norm, strlen($basedir)) : wp_get_attachment_url($attachment_id);
-                echo '<link rel="preload" as="image" href="' . esc_url($url) . '" type="image/webp">' . "\n";
+                $url = (0 === strpos($norm, $basedir)) ? trailingslashit($upload_dir['baseurl']) . ltrim(substr($norm, strlen($basedir)), '/') : (string) wp_get_attachment_url($attachment_id);
+                echo '<link rel="preload" as="image" fetchpriority="high" href="' . esc_url($url) . '" type="image/webp">' . "\n";
+                return $url;
             }
         }
+        return '';
     }
 
     /**
      * Preload an image URL.
+     *
+     * @return bool True when a tag was printed.
      */
-    private function preload_image_url(string $url): void {
-        $ext = strtolower(pathinfo($url, PATHINFO_EXTENSION));
-        if (in_array($ext, ['webp', 'avif'], true)) {
-            echo '<link rel="preload" as="image" href="' . esc_url($url) . '" type="image/' . $ext . '">' . "\n";
+    private function preload_image_url(string $url): bool {
+        // Strip query string/fragment before extension check.
+        $path = (string) strtok($url, '?#');
+        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+        if (in_array($ext, ['webp', 'avif', 'jpeg', 'jpg', 'png'], true)) {
+            $type = ('jpg' === $ext) ? 'jpeg' : $ext;
+            echo '<link rel="preload" as="image" href="' . esc_url($url) . '" type="image/' . esc_attr($type) . '">' . "\n";
+            return true;
         }
+        return false;
     }
 }

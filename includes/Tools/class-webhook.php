@@ -30,9 +30,9 @@ class Webhook {
      */
     public function send_slack(string $message, array $blocks = []): bool {
         $settings = \WSO\Core\Settings::instance();
-        $webhook_url = $settings->get('wso_slack_webhook', '');
+        $webhook_url = esc_url_raw((string) $settings->get('wso_slack_webhook', ''));
 
-        if (empty($webhook_url)) {
+        if ('' === $webhook_url || 0 !== strpos($webhook_url, 'https://hooks.slack.com/')) {
             return false;
         }
 
@@ -41,18 +41,17 @@ class Webhook {
             'blocks' => $blocks,
         ];
 
-        $ch = curl_init($webhook_url);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
-        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        $response = wp_remote_post($webhook_url, [
+            'headers' => ['Content-Type' => 'application/json'],
+            'body'    => wp_json_encode($payload, JSON_UNESCAPED_UNICODE),
+            'timeout' => 10,
+        ]);
+        if (is_wp_error($response)) {
+            return false;
+        }
+        $code = (int) wp_remote_retrieve_response_code($response);
 
-        $response = curl_exec($ch);
-        $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        return $http_code === 200;
+        return 200 === $code;
     }
 
     /**
@@ -60,10 +59,10 @@ class Webhook {
      */
     public function send_telegram(string $message): bool {
         $settings = \WSO\Core\Settings::instance();
-        $bot_token = $settings->get('wso_telegram_token', '');
-        $chat_id = $settings->get('wso_telegram_chat', '');
+        $bot_token = sanitize_text_field((string) $settings->get('wso_telegram_token', ''));
+        $chat_id = sanitize_text_field((string) $settings->get('wso_telegram_chat', ''));
 
-        if (empty($bot_token) || empty($chat_id)) {
+        if ('' === $bot_token || '' === $chat_id || preg_match('/\s/', $bot_token)) {
             return false;
         }
 
@@ -75,17 +74,16 @@ class Webhook {
             'parse_mode' => 'HTML',
         ];
 
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        $response = wp_remote_post($url, [
+            'body'    => $payload,
+            'timeout' => 10,
+        ]);
+        if (is_wp_error($response)) {
+            return false;
+        }
+        $code = (int) wp_remote_retrieve_response_code($response);
 
-        $response = curl_exec($ch);
-        $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        return $http_code === 200;
+        return 200 === $code;
     }
 
     /**

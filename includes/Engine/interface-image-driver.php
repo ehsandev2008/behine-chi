@@ -60,7 +60,8 @@ interface Image_Driver {
      * Strips EXIF metadata from image.
      *
      * @param string $file File path.
+     * @param int $quality Quality setting for re-encoding.
      * @return bool
      */
-    public function strip_exif(string $file): bool;
+    public function strip_exif(string $file, int $quality = 82): bool;
 }

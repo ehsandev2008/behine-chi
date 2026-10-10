@@ -59,7 +59,15 @@ class Cache_Compat {
             \autoptimizeCache::clearall();
         }
 
-        // Clear WordPress object cache
+        // WP-Optimize / Cache Enabler (best-effort, no fatal when absent).
+        if (function_exists('wpo_cache_flush')) {
+            wpo_cache_flush();
+        }
+        if (class_exists('Cache_Enabler') && method_exists('Cache_Enabler', 'clear_total_cache')) {
+            \Cache_Enabler::clear_total_cache();
+        }
+
+        // Clear WordPress object cache last (expensive; only in full purge).
         wp_cache_flush();
     }
 
@@ -67,14 +75,33 @@ class Cache_Compat {
      * Clear cache for a specific attachment.
      */
     public function clear_attachment_cache(int $attachment_id): void {
+        $post = get_post($attachment_id);
+        if (!$post) {
+            return;
+        }
         $url = wp_get_attachment_url($attachment_id);
         if (!$url) {
             return;
         }
 
-        // WP Rocket - clear specific URL
+        // WP Rocket - clear parent posts using this attachment (attachment ID itself is not a post cache key).
         if (function_exists('rocket_clean_post')) {
-            rocket_clean_post($attachment_id);
+            $parents = get_posts([
+                'post_type'      => 'any',
+                'post_status'    => 'publish',
+                'posts_per_page' => 5,
+                'fields'         => 'ids',
+                'meta_query'     => [
+                    [
+                        'key'     => '_thumbnail_id',
+                        'value'   => $attachment_id,
+                        'compare' => '=',
+                    ],
+                ],
+            ]);
+            foreach ($parents as $pid) {
+                rocket_clean_post((int) $pid);
+            }
         }
 
         // LiteSpeed - purge specific URL

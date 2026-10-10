@@ -34,12 +34,20 @@ class Format_Converter {
      * @return array Result with success status and details.
      */
     public function convert(string $source_path, string $target_format, int $quality = 85): array {
+        $quality = max(1, min(100, $quality));
         if (!file_exists($source_path)) {
             return ['success' => false, 'message' => 'فایل مبدأ یافت نشد.'];
         }
 
         $source_ext = strtolower(pathinfo($source_path, PATHINFO_EXTENSION));
         $target_format = strtolower($target_format);
+        // Normalize jpg/jpeg aliases.
+        if ('jpg' === $target_format) {
+            $target_format = 'jpeg';
+        }
+        if ('jpg' === $source_ext) {
+            $source_ext = 'jpeg';
+        }
 
         if ($source_ext === $target_format) {
             return ['success' => false, 'message' => 'فرمت مبدأ و هدف یکسان است.'];
@@ -55,7 +63,6 @@ class Format_Converter {
             'webp' => 'image/webp',
             'avif' => 'image/avif',
             'png'  => 'image/png',
-            'jpg'  => 'image/jpeg',
             'jpeg' => 'image/jpeg',
         ];
 
@@ -63,6 +70,10 @@ class Format_Converter {
 
         if (!$target_mime) {
             return ['success' => false, 'message' => 'فرمت هدف پشتیبانی نمی‌شود.'];
+        }
+        // Capability gate: do not attempt conversions the driver cannot do.
+        if (('image/webp' === $target_mime && !$driver->supports_webp()) || ('image/avif' === $target_mime && !$driver->supports_avif())) {
+            return ['success' => false, 'message' => 'درایور فعال از فرمت هدف پشتیبانی نمی‌کند.'];
         }
 
         if ($driver->convert($source_path, $target_path, $target_mime, $quality)) {
@@ -115,7 +126,7 @@ class Format_Converter {
                 $converted[$size_key] = $result['target_path'];
                 // Update metadata
                 $meta['sizes'][$size_key]['file'] = basename($result['target_path']);
-                $meta['sizes'][$size_key]['mime-type'] = 'image/' . $target_format;
+                $meta['sizes'][$size_key]['mime-type'] = 'image/' . ('jpeg' === $target_format ? 'jpeg' : $target_format);
             } else {
                 $failed[] = $size_key;
             }
@@ -137,11 +148,19 @@ class Format_Converter {
      * Get list of supported conversion formats.
      */
     public function get_supported_formats(): array {
-        return [
-            'webp' => 'WebP',
-            'avif' => 'AVIF',
-            'png'  => 'PNG',
-            'jpg'  => 'JPEG',
-        ];
+        $driver = null;
+        try {
+            $driver = Optimizer::instance()->get_driver();
+        } catch (\Throwable $e) {}
+        $formats = [];
+        if (!$driver || $driver->supports_webp()) {
+            $formats['webp'] = 'WebP';
+        }
+        if (!$driver || $driver->supports_avif()) {
+            $formats['avif'] = 'AVIF';
+        }
+        $formats['png']  = 'PNG';
+        $formats['jpeg'] = 'JPEG';
+        return $formats;
     }
 }

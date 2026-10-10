@@ -84,6 +84,10 @@ class Exporter_Importer {
         if (empty($json_raw)) {
             wp_send_json_error(['message' => 'هیچ داده تنظیماتی ارسال نشده است.']);
         }
+        // Size cap: 200KB max to prevent DoS via huge payloads.
+        if (strlen($json_raw) > 200 * 1024) {
+            wp_send_json_error(['message' => 'حجم داده تنظیمات بیش از حد مجاز است.']);
+        }
 
         $decoded = json_decode($json_raw, true);
         if (!$decoded || empty($decoded['settings']) || !is_array($decoded['settings'])) {
@@ -91,8 +95,10 @@ class Exporter_Importer {
         }
 
         $settings_obj = Settings::instance();
+        $defaults = $settings_obj->get_defaults();
         foreach ($decoded['settings'] as $key => $val) {
-            if (str_starts_with($key, Settings::PREFIX)) {
+            if (str_starts_with($key, Settings::PREFIX) && array_key_exists($key, $defaults)) {
+                // set() applies per-key sanitization internally.
                 $settings_obj->set($key, $val);
             }
         }

@@ -42,24 +42,17 @@ class Queue_Manager {
     /**
      * Populates the queue table with un-optimized media library attachments.
      * Preserves custom scanned items without truncating the table.
+     * Paginated to avoid OOM on large libraries.
      *
+     * @param int $per_page Items per page.
+     * @param int $max_pages Safety cap (0 = unlimited).
      * @return int Number of newly items queued.
      */
-    public function populate_media_library_queue(): int {
+    public function populate_media_library_queue(int $per_page = 200, int $max_pages = 50): int {
         global $wpdb;
         $db = Database::instance();
         $table = $db->queue_table;
-
-        $args = [
-            'post_type'      => 'attachment',
-            'post_status'    => 'inherit',
-            'post_mime_type' => ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'],
-            'posts_per_page' => -1,
-            'fields'         => 'ids',
-        ];
-
-        $query = new \WP_Query($args);
-        $attachment_ids = $query->posts;
+        $per_page = max(50, min(500, $per_page));
 
         // Avoid duplication: skip anything already in queue with active status
         // (pending/processing) or already completed successfully.
@@ -69,34 +62,61 @@ class Queue_Manager {
         $existing_map = array_flip($existing_queued ?: []);
 
         $count = 0;
-        foreach ($attachment_ids as $id) {
-            if (isset($existing_map[$id])) {
-                continue;
-            }
+        $paged = 1;
+        do {
+            $args = [
+                'post_type'      => 'attachment',
+                'post_status'    => 'inherit',
+                'post_mime_type' => ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'],
+                'posts_per_page' => $per_page,
+                'paged'          => $paged,
+                'fields'         => 'ids',
+                'no_found_rows'  => true,
+            ];
 
-            // Skip already-optimized attachments so re-building the queue
-            // never re-queues processed images.
-            if (get_post_meta($id, '_wso_optimized', true)) {
-                continue;
+            $query = new \WP_Query($args);
+            $attachment_ids = $query->posts;
+            if (empty($attachment_ids)) {
+                break;
             }
+            foreach ($attachment_ids as $id) {
+                if (isset($existing_map[$id])) {
+                    continue;
+                }
 
-            $file = get_attached_file($id);
-            if ($file && file_exists($file)) {
-                $file = wp_normalize_path($file);
-                $wpdb->insert(
-                    $table,
-                    [
-                        'attachment_id' => $id,
-                        'file_path'     => $file,
-                        'status'        => 'pending',
-                        'created_at'    => current_time('mysql'),
-                        'updated_at'    => current_time('mysql'),
-                    ],
-                    ['%d', '%s', '%s', '%s', '%s']
-                );
-                $count++;
+                // Skip already-optimized attachments so re-building the queue
+                // never re-queues processed images.
+                if (get_post_meta($id, '_wso_optimized', true)) {
+                    continue;
+                }
+
+                $file = get_attached_file($id);
+                if ($file && file_exists($file)) {
+                    $file = wp_normalize_path($file);
+                    $inserted = $wpdb->insert(
+                        $table,
+                        [
+                            'attachment_id' => $id,
+                            'file_path'     => $file,
+                            'status'        => 'pending',
+                            'created_at'    => current_time('mysql'),
+                            'updated_at'    => current_time('mysql'),
+                        ],
+                        ['%d', '%s', '%s', '%s', '%s']
+                    );
+                    if (false !== $inserted) {
+                        $existing_map[$id] = true;
+                        $count++;
+                    }
+                }
             }
-        }
+            wp_reset_postdata();
+            $paged++;
+            // Free memory between pages on huge libraries.
+            if (function_exists('gc_collect_cycles')) {
+                gc_collect_cycles();
+            }
+        } while (!empty($attachment_ids) && (0 === $max_pages || $paged <= $max_pages));
 
         return $count;
     }
@@ -231,6 +251,14 @@ class Queue_Manager {
         global $wpdb;
         $db = Database::instance();
 
+        $allowed = ['pending', 'processing', 'completed', 'failed', 'success', 'error', 'skipped', 'warning'];
+        if (!in_array($status, $allowed, true)) {
+            $status = 'failed';
+        }
+        if (null !== $error_msg) {
+            $error_msg = substr(sanitize_text_field((string) $error_msg), 0, 2000);
+        }
+
         return $wpdb->update(
             $db->queue_table,
             [
@@ -277,6 +305,7 @@ class Queue_Manager {
             'failed'      => 'failed',
             'error'       => 'failed',
             'skipped'     => 'skipped',
+            'warning'     => 'skipped',
         ];
 
         if ($results) {

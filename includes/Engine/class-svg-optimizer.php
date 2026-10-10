@@ -169,6 +169,10 @@ class SVG_Optimizer {
         if ('' === trim($content) || stripos($content, '<svg') === false) {
             return false;
         }
+        // Reject entity declarations / external DTD (XXE hardening).
+        if (preg_match('/<!ENTITY/i', $content) || preg_match('/<!DOCTYPE[^>]*\[/is', $content)) {
+            return false;
+        }
 
         // Reject obvious non-SVG / binary uploads.
         if (str_starts_with(ltrim($content), "\x89PNG")
@@ -178,8 +182,11 @@ class SVG_Optimizer {
         }
 
         $prev = libxml_use_internal_errors(true);
+        if (function_exists('libxml_disable_entity_loader')) {
+            @libxml_disable_entity_loader(true);
+        }
         $dom  = new \DOMDocument();
-        $ok   = $dom->loadXML($content, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+        $ok   = $dom->loadXML($content, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_NOBLANKS);
         libxml_clear_errors();
         libxml_use_internal_errors($prev);
 
@@ -273,11 +280,30 @@ class SVG_Optimizer {
             return $original;
         }
 
-        // 3. Remove security risks (scripts and inline event handlers / javascript: URIs).
+        // 3. Remove security risks (scripts, inline event handlers, javascript:/data: URIs,
+        //    foreignObject/animate-based XSS vectors, style-based javascript).
         $svg = preg_replace('/<script[\\s\\S]*?<\/script>/i', '', $svg);
+        $svg = preg_replace('/<foreignObject[\\s\\S]*?<\/foreignObject>/i', '', $svg);
         $svg = preg_replace('/\s+on[a-z]+\s*=\s*(["\'][^"\']*["\']|[^\s>]+)/i', '', $svg);
         $svg = preg_replace('/\bhref\s*=\s*["\']\s*javascript:[^"\']*["\']/i', 'href=""', $svg);
         $svg = preg_replace('/\bxlink:href\s*=\s*["\']\s*javascript:[^"\']*["\']/i', 'xlink:href=""', $svg);
+        $svg = preg_replace('/\bhref\s*=\s*["\']\s*data:text\/html[^"\']*["\']/i', 'href=""', $svg);
+        $svg = preg_replace('/\bxlink:href\s*=\s*["\']\s*data:text\/html[^"\']*["\']/i', 'xlink:href=""', $svg);
+        // Neutralize javascript:/expression()/behaviour inside style attributes and <style> blocks.
+        $svg = preg_replace_callback('/(<style[^>]*>)([\\s\\S]*?)(<\/style>)/i', function ($m) {
+            $css = preg_replace('/javascript\s*:/i', '', $m[2]);
+            $css = preg_replace('/expression\s*\(/i', '', (string) $css);
+            $css = preg_replace('/-moz-binding\s*:/i', '', (string) $css);
+            return $m[1] . $css . $m[3];
+        }, $svg);
+        $svg = preg_replace_callback('/\bstyle\s*=\s*(["\'])(.*?)\1/is', function ($m) {
+            $style = preg_replace('/javascript\s*:/i', '', $m[2]);
+            $style = preg_replace('/expression\s*\(/i', '', (string) $style);
+            $style = preg_replace('/-moz-binding\s*:/i', '', (string) $style);
+            return 'style=' . $m[1] . $style . $m[1];
+        }, $svg);
+        // Strip animate/set event vectors that can execute script.
+        $svg = preg_replace('/<(animate|set)[^>]*\bonbegin[^>]*>/i', '<$1>', $svg);
         if (null === $svg) {
             return $original;
         }
@@ -292,7 +318,7 @@ class SVG_Optimizer {
             '/\s+xmlns:i\s*=\s*["\'][^"\']*["\']/i',
             '/\s+xmlns:graph\s*=\s*["\'][^"\']*["\']/i',
             '/\s+xmlns:illustrator\s*=\s*["\'][^"\']*["\']/i',
-            '/\s+xmlns: corel\s*=\s*["\'][^"\']*["\']/ix',
+            '/\s+xmlns:corel\s*=\s*["\'][^"\']*["\']/i',
             '/\s+inkscape:[a-zA-Z0-9_-]+\s*=\s*(["\'][^"\']*["\']|[^\s>]+)/i',
             '/\s+sodipodi:[a-zA-Z0-9_-]+\s*=\s*(["\'][^"\']*["\']|[^\s>]+)/i',
             '/\s+sketch:[a-zA-Z0-9_-]+\s*=\s*(["\'][^"\']*["\']|[^\s>]+)/i',

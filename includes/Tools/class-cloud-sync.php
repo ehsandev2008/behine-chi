@@ -41,11 +41,17 @@ class Cloud_Sync {
         if (empty($public_id)) {
             $public_id = pathinfo($file_path, PATHINFO_FILENAME);
         }
+        $public_id = sanitize_key(preg_replace('/[^A-Za-z0-9_\-\/]/', '_', (string) $public_id));
+        if ('' === $public_id) {
+            return ['success' => false, 'message' => 'شناسه عمومی نامعتبر است.'];
+        }
+        if (!file_exists($file_path) || !is_readable($file_path)) {
+            return ['success' => false, 'message' => 'فایل مبدأ یافت نشد یا قابل خواندن نیست.'];
+        }
 
         $url = "https://api.cloudinary.com/v1_1/{$cloud_name}/image/upload";
 
         $post_data = [
-            'file'       => new \CURLFile($file_path),
             'public_id'  => $public_id,
             'api_key'    => $api_key,
             'timestamp'  => time(),
@@ -56,27 +62,33 @@ class Cloud_Sync {
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, array_merge($post_data, ['file' => new \CURLFile($file_path)]));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, 60);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
 
         $response = curl_exec($ch);
-        $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        if (false === $response) {
+            $err = curl_error($ch);
+            curl_close($ch);
+            return ['success' => false, 'message' => 'خطای شبکه Cloudinary: ' . $err];
+        }
+        $http_code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
         if ($http_code === 200) {
-            $data = json_decode($response, true);
+            $data = json_decode((string) $response, true);
             if (!empty($data['secure_url'])) {
                 return [
                     'success' => true,
-                    'url'     => $data['secure_url'],
-                    'format'  => $data['format'] ?? 'webp',
+                    'url'     => esc_url_raw($data['secure_url']),
+                    'format'  => sanitize_key($data['format'] ?? 'webp'),
                 ];
             }
         }
 
-        return ['success' => false, 'message' => 'آپلود به Cloudinary ناموفق بود.'];
+        return ['success' => false, 'message' => 'آپلود به Cloudinary ناموفق بود (کد ' . $http_code . ').'];
     }
 
     /**

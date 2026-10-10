@@ -85,6 +85,9 @@ class Media_Columns {
         if (!is_admin() || !$query->is_main_query()) {
             return;
         }
+        if (!current_user_can('upload_files')) {
+            return;
+        }
 
         $orderby = $query->get('orderby');
 
@@ -149,12 +152,19 @@ class Media_Columns {
         if (!is_admin() || !$query->is_main_query()) {
             return;
         }
+        if (!current_user_can('upload_files')) {
+            return;
+        }
 
         $meta_query = $query->get('meta_query') ?: [];
 
-        // Format filter
-        $format = sanitize_text_field($_GET['wso_filter_format'] ?? '');
-        if ($format) {
+        // Format filter (allow-listed).
+        $format = sanitize_key($_GET['wso_filter_format'] ?? '');
+        $allowed_formats = ['jpeg', 'jpg', 'png', 'webp', 'avif', 'svg'];
+        if ('' !== $format && in_array($format, $allowed_formats, true)) {
+            if ('jpg' === $format) {
+                $format = 'jpeg';
+            }
             $meta_query[] = [
                 'key'     => '_wp_attached_file',
                 'value'   => '.' . $format,
@@ -163,7 +173,7 @@ class Media_Columns {
         }
 
         // Status filter
-        $status = sanitize_text_field($_GET['wso_filter_status'] ?? '');
+        $status = sanitize_key($_GET['wso_filter_status'] ?? '');
         if ($status === 'optimized') {
             $meta_query[] = [
                 'key'     => '_wso_optimized',
@@ -182,12 +192,12 @@ class Media_Columns {
             ];
         }
 
-        // Engine filter
-        $engine = sanitize_text_field($_GET['wso_filter_engine'] ?? '');
-        if ($engine) {
+        // Engine filter (serialized driver value; match loosely without length prefix).
+        $engine = sanitize_key($_GET['wso_filter_engine'] ?? '');
+        if (in_array($engine, ['imagick', 'gd'], true)) {
             $meta_query[] = [
                 'key'     => '_wso_opt_data',
-                'value'   => '"driver";s:7:"' . $engine . '"',
+                'value'   => '"driver";s:' . strlen($engine) . ':"' . $engine . '"',
                 'compare' => 'LIKE',
             ];
         }

@@ -4,7 +4,7 @@
 
 # Behine Chi
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/)
+[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](https://github.com/)
 [![License](https://img.shields.io/badge/license-GPLv2%20or%20later-green.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
 
 **Behine Chi** is a WordPress image optimization plugin designed to automatically convert images to next-generation formats (WebP and AVIF), resize dimensions, strip EXIF metadata, apply watermarks, optimize SVGs, and manage backups and batch processing without relying on external cloud APIs or third-party subscription services.
@@ -113,7 +113,7 @@
 ## 🛠️ Usage
 
 ### 1. Automatic Optimization on Upload
-When enabled (`wso_auto_optimize = 1`), any image uploaded through the WordPress Media Library or theme uploaders is automatically intercepted by the `wp_handle_upload` filter (priority `20`), compressed, resized, converted, watermarked, and backed up according to active settings.
+When enabled (`wso_auto_optimize = 1`), any image uploaded through the WordPress Media Library is automatically processed via the `wp_generate_attachment_metadata` filter (priority `20`); the main file and all thumbnails are optimized exactly once (resize, convert, watermark, backup).
 
 ### 2. Bulk Optimization
 1. Go to **بهینه چی > صف بهینه‌سازی (Bulk Queue)** in the WordPress admin.
@@ -149,7 +149,7 @@ All settings are stored in the WordPress `wp_options` table with the `wso_` pref
 | `wso_optimize_svg` | Checkbox | `1` | Minify and clean SVG files upon upload. |
 | `wso_max_width` | Number | `2560` | Maximum pixel width. Images wider than this value are resized proportionally. |
 | `wso_max_height` | Number | `2560` | Maximum pixel height. Images taller than this value are resized proportionally. |
-| `wso_auto_optimize` | Checkbox | `1` | Automatically optimize images immediately during upload via `wp_handle_upload`. |
+| `wso_auto_optimize` | Checkbox | `1` | Automatically optimize images immediately during upload via `wp_generate_attachment_metadata`. |
 | `wso_dark_mode` | Checkbox | `0` | Toggle dark mode styling for the plugin's admin dashboard. |
 | `wso_watermark_enabled`| Checkbox | `0` | Enable transparent PNG watermark overlay on processed images. |
 | `wso_watermark_image`  | Attachment ID | `0` | Media Library attachment ID of the PNG watermark image. |
@@ -264,4 +264,4 @@ This project is licensed under the **GPLv2 or later** (GNU General Public Licens
 ## 👤 Author
 
 - **Author:** Ehsan.dev
-- **Website:** [http://sir-developer.ir/](http://sir-developer.ir/)
+- **Website:** [https://sir-developer.ir/](https://sir-developer.ir/)

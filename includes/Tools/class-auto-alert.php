@@ -102,10 +102,10 @@ class Auto_Alert {
 
         // Check failed queue items
         $queue_stats = \WSO\Queue\Queue_Manager::instance()->get_stats();
-        if ($queue_stats['failed'] > 10) {
+        if (($queue_stats['failed'] ?? 0) > 10) {
             $alerts[] = sprintf(
                 '%d تصویر در صف به دلیل خطا شکست خورده‌اند. لطفاً لاگ‌ها را بررسی کنید.',
-                $queue_stats['failed']
+                (int) $queue_stats['failed']
             );
         }
 
@@ -115,9 +115,11 @@ class Auto_Alert {
                 Notifications::instance()->add('warning', $alert);
             }
 
-            // Send webhook notification
+            // Send webhook notification (both channels when configured).
             $webhook = Webhook::instance();
-            $webhook->send_slack("⚠️ هشدارهای بهینه چی:\n" . implode("\n", $alerts));
+            $text = "⚠️ هشدارهای بهینه چی:\n" . implode("\n", $alerts);
+            $webhook->send_slack($text);
+            $webhook->send_telegram(strip_tags($text));
         }
     }
 
@@ -125,18 +127,31 @@ class Auto_Alert {
      * Parse memory limit string to bytes.
      */
     private function parse_memory_limit(string $limit): int {
-        if (empty($limit) || $limit === '-1') {
+        $limit = trim($limit);
+        if ('' === $limit || '-1' === $limit) {
             return 0;
         }
-        $limit = trim($limit);
         $last = strtolower($limit[strlen($limit) - 1]);
-        $val = (int) $limit;
-        switch ($last) {
-            case 'g': $val *= 1024;
-            case 'm': $val *= 1024;
-            case 'k': $val *= 1024;
+        if (!ctype_alpha($last)) {
+            return (int) $limit;
         }
-        return $val;
+        $val = (int) $limit;
+        $bytes = $val;
+        switch ($last) {
+            case 'g':
+                $bytes *= 1024;
+                // fall-through
+            case 'm':
+                $bytes *= 1024;
+                // fall-through
+            case 'k':
+                $bytes *= 1024;
+                break;
+            default:
+                $bytes = $val;
+                break;
+        }
+        return $bytes;
     }
 
     /**

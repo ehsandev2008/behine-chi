@@ -31,15 +31,18 @@ class Lazy_Load {
     /**
      * Add lazy loading to attachment images.
      */
-    public function maybe_add_lazy_load(array $attr, \WP_Post $attachment, array $size): array {
+    public function maybe_add_lazy_load(array $attr, \WP_Post $attachment, $size): array {
         $settings = \WSO\Core\Settings::instance();
         if (!$settings->get('wso_smart_lazy_load', 0)) {
             return $attr;
         }
-
-        // Only lazy load if image is NOT optimized
-        $is_optimized = get_post_meta($attachment->ID, '_wso_optimized', true);
-        if ($is_optimized) {
+        // Skip first/content-top images is handled by core; here lazy-load all
+        // except when explicitly eager (e.g. featured preload).
+        if (isset($attr['loading']) && 'eager' === $attr['loading']) {
+            return $attr;
+        }
+        // Respect fetchpriority=high images (likely LCP).
+        if (isset($attr['fetchpriority']) && 'high' === strtolower((string) $attr['fetchpriority'])) {
             return $attr;
         }
 
@@ -59,17 +62,20 @@ class Lazy_Load {
         }
 
         // Only process if there are images
-        if (!str_contains($content, '<img')) {
+        if (false === strpos($content, '<img')) {
             return $content;
         }
 
         // Add loading="lazy" to images that don't have it
-        $content = preg_replace(
-            '/<img(?![^>]*loading=)([^>]+)>/i',
+        $filtered = preg_replace(
+            '/<img(?![^>]*\bloading\s*=)([^>]+)>/i',
             '<img loading="lazy" decoding="async"$1>',
             $content
         );
+        if (!is_string($filtered)) {
+            return $content;
+        }
 
-        return $content;
+        return $filtered;
     }
 }

@@ -36,12 +36,12 @@ class Progress_Chart {
         $db = \WSO\Core\Database::instance();
         $table = $db->logs_table;
 
-        $interval = match ($period) {
-            'week'  => '7 DAY',
-            'month' => '30 DAY',
-            'year'  => '1 YEAR',
-            default => '30 DAY',
-        };
+        $interval = '30 DAY';
+        if ('week' === $period) {
+            $interval = '7 DAY';
+        } elseif ('year' === $period) {
+            $interval = '1 YEAR';
+        }
 
         $results = $wpdb->get_results(
             $wpdb->prepare(
@@ -51,7 +51,7 @@ class Progress_Chart {
                     SUM(original_size) as total_original,
                     SUM(optimized_size) as total_optimized,
                     SUM(saved_bytes) as total_saved,
-                    savings_percent
+                    AVG(savings_percent) as avg_savings
                  FROM {$table}
                  WHERE status = 'success'
                    AND created_at >= DATE_SUB(NOW(), INTERVAL {$interval})
@@ -120,7 +120,12 @@ class Progress_Chart {
                 continue;
             }
             $driver = strtolower((string) ($data['driver'] ?? ''));
-            $bucket = str_contains($driver, 'imagick') ? 'imagick' : (str_contains($driver, 'gd') ? 'gd' : '');
+            $bucket = '';
+            if (false !== strpos($driver, 'imagick')) {
+                $bucket = 'imagick';
+            } elseif (false !== strpos($driver, 'gd')) {
+                $bucket = 'gd';
+            }
             if ('' === $bucket) {
                 continue;
             }

@@ -60,69 +60,130 @@ class EXIF_Editor {
     }
 
     /**
-     * Strip GPS data from JPEG.
+     * Strip GPS data from JPEG (truly removes tags; preserves ICC profile).
      */
     private function strip_gps_jpeg(string $file_path): bool {
-        if (!extension_loaded('imagick')) {
+        if (!extension_loaded('imagick') || !class_exists('\Imagick')) {
             return false;
         }
 
         try {
             $imagick = new \Imagick($file_path);
+            // Preserve ICC so colors do not shift.
+            $icc = null;
+            try {
+                $icc = $imagick->getImageProfiles('icc', true);
+            } catch (\Throwable $e) {}
 
-            // Remove only GPS-related EXIF data
-            $imagick->setImageProperty('exif:GPSLatitude', '');
-            $imagick->setImageProperty('exif:GPSLongitude', '');
-            $imagick->setImageProperty('exif:GPSAltitude', '');
-            $imagick->setImageProperty('exif:GPSLatitudeRef', '');
-            $imagick->setImageProperty('exif:GPSLongitudeRef', '');
-            $imagick->setImageProperty('exif:GPSAltitudeRef', '');
-            $imagick->setImageProperty('exif:GPSTimeStamp', '');
-            $imagick->setImageProperty('exif:GPSDateStamp', '');
-            $imagick->setImageProperty('exif:GPSProcessingMethod', '');
-            $imagick->setImageProperty('exif:GPSAreaInformation', '');
-            $imagick->setImageProperty('exif:GPSDifferential', '');
-            $imagick->setImageProperty('exif:GPSHPositioningError', '');
+            // True removal: strip all profiles then re-add only ICC.
+            $imagick->stripImage();
+            if (!empty($icc['icc'])) {
+                try {
+                    $imagick->profileImage('icc', $icc['icc']);
+                } catch (\Throwable $e) {}
+            }
 
-            $imagick->writeImage($file_path);
+            $tmp = $file_path . '.tmp';
+            $ok = $imagick->writeImage($tmp);
             $imagick->clear();
             $imagick->destroy();
+            if (!$ok || !file_exists($tmp) || filesize($tmp) <= 0) {
+                @unlink($tmp);
+                return false;
+            }
+            // Verify GPS is actually gone before claiming success.
+            if ($this->has_gps($tmp)) {
+                @unlink($tmp);
+                return false;
+            }
+            if (!@rename($tmp, $file_path)) {
+                @unlink($tmp);
+                return false;
+            }
 
             return true;
         } catch (\Throwable $e) {
+            if (isset($tmp)) {
+                @unlink($tmp);
+            }
             return false;
         }
     }
 
     /**
-     * Strip camera make/model from JPEG.
+     * Checks whether a file still contains GPS EXIF.
+     *
+     * @param string $file File path.
+     * @return bool
+     */
+    private function has_gps(string $file): bool {
+        if (!function_exists('exif_read_data')) {
+            return false;
+        }
+        $exif = @exif_read_data($file, 'ANY_TAG', true);
+        return !empty($exif['GPS']);
+    }
+
+    /**
+     * Strip camera make/model from JPEG (truly removes tags; preserves ICC).
      */
     private function strip_camera_jpeg(string $file_path): bool {
-        if (!extension_loaded('imagick')) {
+        if (!extension_loaded('imagick') || !class_exists('\Imagick')) {
             return false;
         }
 
         try {
             $imagick = new \Imagick($file_path);
 
-            // Remove camera info but keep ICC profile
-            $imagick->setImageProperty('exif:Make', '');
-            $imagick->setImageProperty('exif:Model', '');
-            $imagick->setImageProperty('exif:CameraOwnerName', '');
-            $imagick->setImageProperty('exif:BodySerialNumber', '');
-            $imagick->setImageProperty('exif:LensMake', '');
-            $imagick->setImageProperty('exif:LensModel', '');
-            $imagick->setImageProperty('exif:LensSerialNumber', '');
-            $imagick->setImageProperty('exif:UserComment', '');
+            $icc = null;
+            try {
+                $icc = $imagick->getImageProfiles('icc', true);
+            } catch (\Throwable $e) {}
+            $imagick->stripImage();
+            if (!empty($icc['icc'])) {
+                try {
+                    $imagick->profileImage('icc', $icc['icc']);
+                } catch (\Throwable $e) {}
+            }
 
-            $imagick->writeImage($file_path);
+            $tmp = $file_path . '.tmp';
+            $ok = $imagick->writeImage($tmp);
             $imagick->clear();
             $imagick->destroy();
+            if (!$ok || !file_exists($tmp) || filesize($tmp) <= 0) {
+                @unlink($tmp);
+                return false;
+            }
+            if ($this->has_camera_info($tmp)) {
+                @unlink($tmp);
+                return false;
+            }
+            if (!@rename($tmp, $file_path)) {
+                @unlink($tmp);
+                return false;
+            }
 
             return true;
         } catch (\Throwable $e) {
+            if (isset($tmp)) {
+                @unlink($tmp);
+            }
             return false;
         }
+    }
+
+    /**
+     * Checks whether camera make/model EXIF remains.
+     *
+     * @param string $file File path.
+     * @return bool
+     */
+    private function has_camera_info(string $file): bool {
+        if (!function_exists('exif_read_data')) {
+            return false;
+        }
+        $exif = @exif_read_data($file, 'ANY_TAG', true);
+        return !empty($exif['IFD0']['Make']) || !empty($exif['IFD0']['Model']);
     }
 
     /**

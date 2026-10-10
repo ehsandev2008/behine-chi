@@ -61,7 +61,7 @@ class Backup_Manager {
 
         $htaccess = $this->backup_dir . '.htaccess';
         if (!file_exists($htaccess)) {
-            @file_put_contents($htaccess, "deny from all\n");
+            @file_put_contents($htaccess, "<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n");
         }
 
         $index = $this->backup_dir . 'index.php';
@@ -160,7 +160,14 @@ class Backup_Manager {
         // Find attachment ID from file path
         global $wpdb;
         $upload_dir = wp_upload_dir();
-        $relative_path = ltrim(str_replace($upload_dir['basedir'], '', $file_path), '/\\');
+        $basedir_norm = wp_normalize_path(trailingslashit($upload_dir['basedir']));
+        $file_norm = wp_normalize_path($file_path);
+        $relative_path = '';
+        if (str_starts_with($file_norm, $basedir_norm)) {
+            $relative_path = ltrim(substr($file_norm, strlen($basedir_norm)), '/');
+        } else {
+            $relative_path = ltrim(str_replace([$upload_dir['basedir'], '\\'], ['', '/'], $file_path), '/');
+        }
         
         if (!empty($relative_path)) {
             $attachment_id = (int) $wpdb->get_var($wpdb->prepare(
@@ -214,7 +221,10 @@ class Backup_Manager {
      * @return int Number of restored files.
      */
     public function restore_all(): int {
+        global $wpdb;
         $upload_dir = wp_upload_dir()['basedir'];
+        $upload_dir = wp_normalize_path(trailingslashit($upload_dir));
+        $backup_base = wp_normalize_path(trailingslashit($this->backup_dir));
         $count = 0;
 
         if (!is_dir($this->backup_dir)) {
@@ -233,8 +243,16 @@ class Backup_Manager {
                     continue;
                 }
 
-                $relative = substr($item->getPathname(), strlen($this->backup_dir));
-                $original_target = trailingslashit($upload_dir) . $relative;
+                $src_norm = wp_normalize_path($item->getPathname());
+                if (!str_starts_with($src_norm, $backup_base)) {
+                    continue;
+                }
+                $relative = ltrim(substr($src_norm, strlen($backup_base)), '/');
+                // Prevent directory traversal in stored names.
+                if ('' === $relative || str_contains($relative, '..')) {
+                    continue;
+                }
+                $original_target = $upload_dir . $relative;
 
                 if (@copy($item->getPathname(), $original_target)) {
                     $count++;

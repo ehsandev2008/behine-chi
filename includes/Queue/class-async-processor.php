@@ -86,6 +86,7 @@ class Async_Processor {
 
     /**
      * Processes a single batch of queue items.
+     * Hardened for shared hosts: time-boxed, per-item isolated, memory-cleaned.
      *
      * @return void
      */
@@ -96,8 +97,14 @@ class Async_Processor {
             wp_send_json_error(['message' => 'افزونه غیرفعال است و امکان پردازش وجود ندارد.'], 400);
         }
 
-        $batch_size = (int) ($_POST['batch_size'] ?? 5);
-        $batch_size = max(1, min(20, $batch_size));
+        // Time-box each batch so slow AVIF encodes cannot hit PHP max_execution_time.
+        @set_time_limit(120);
+        @ini_set('max_execution_time', '120');
+        $batch_start = microtime(true);
+        $max_seconds = 25;
+
+        $batch_size = (int) ($_POST['batch_size'] ?? 3);
+        $batch_size = max(1, min(5, $batch_size));
 
         $manager   = Queue_Manager::instance();
         $optimizer = Optimizer::instance();
@@ -105,44 +112,69 @@ class Async_Processor {
         $items = $manager->get_pending_batch($batch_size);
 
         if (empty($items)) {
+            $stats = $manager->get_stats();
             wp_send_json_success([
-                'completed' => true,
+                'completed' => (0 === (int) ($stats['pending'] ?? 0)),
                 'message'   => 'عملیات صف بهینه‌سازی همگانی پایان یافت.',
                 'processed' => 0,
-                'stats'     => $manager->get_stats(),
+                'stats'     => $stats,
             ]);
         }
 
         $processed_results = [];
         foreach ($items as $item) {
-            $manager->update_status($item['id'], 'processing');
+            // Stop before timeout: leave rest pending for the next request.
+            if ((microtime(true) - $batch_start) > $max_seconds) {
+                break;
+            }
+            $manager->update_status((int) $item['id'], 'processing');
 
             $attachment_id = (int) $item['attachment_id'];
-            $file_path     = $item['file_path'];
+            $file_path     = wp_normalize_path((string) $item['file_path']);
 
-            if ($attachment_id > 0) {
-                $res = $optimizer->optimize_attachment($attachment_id);
-            } else {
-                $res = $optimizer->optimize_file($file_path);
+            try {
+                // Revalidate file at processing time (TOCTOU guard).
+                if ($attachment_id > 0) {
+                    $current = get_attached_file($attachment_id);
+                    if (!$current || !file_exists($current)) {
+                        throw new \Exception('فایل رسانه یافت نشد.');
+                    }
+                    $res = $optimizer->optimize_attachment($attachment_id);
+                } else {
+                    if (!file_exists($file_path) || !is_file($file_path) || !is_readable($file_path)) {
+                        throw new \Exception('فایل صف یافت نشد.');
+                    }
+                    $res = $optimizer->optimize_file($file_path);
+                }
+            } catch (\Throwable $e) {
+                $res = ['status' => Logger::STATUS_ERROR, 'message' => $e->getMessage()];
             }
 
             $status = $res['status'] ?? Logger::STATUS_ERROR;
-            $msg    = $res['message'] ?? '';
+            $msg    = isset($res['message']) ? substr(sanitize_text_field((string) $res['message']), 0, 500) : '';
 
-            $manager->update_status($item['id'], $status, $msg);
+            $manager->update_status((int) $item['id'], $status, $msg);
             $processed_results[] = [
-                'id'      => $item['id'],
+                'id'      => (int) $item['id'],
                 'file'    => basename($file_path),
                 'status'  => $status,
                 'message' => $msg,
             ];
+            // Free image memory between items.
+            if (function_exists('gc_collect_cycles')) {
+                gc_collect_cycles();
+            }
+            wp_cache_flush();
         }
 
+        $stats = $manager->get_stats();
+        $completed = (0 === (int) ($stats['pending'] ?? 0));
+
         wp_send_json_success([
-            'completed' => false,
+            'completed' => $completed,
             'processed' => count($processed_results),
             'results'   => $processed_results,
-            'stats'     => $manager->get_stats(),
+            'stats'     => $stats,
         ]);
     }
 

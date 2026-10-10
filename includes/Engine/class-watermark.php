@@ -162,7 +162,7 @@ class Watermark {
         if ('svg' === $ext) {
             return ['applied' => false, 'reason' => 'svg_skipped'];
         }
-        if (!in_array($ext, ['jpg', 'jpeg', 'png', 'webp'], true)) {
+        if (!in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'avif'], true)) {
             return ['applied' => false, 'reason' => 'unsupported'];
         }
 
@@ -319,7 +319,11 @@ class Watermark {
             }
 
             // Apply opacity to watermark alpha channel.
+            // Ensure an alpha channel exists so JPEG watermarks (no alpha) also respect opacity.
             if ($opacity < 100) {
+                try {
+                    $wm->setImageAlphaChannel(\Imagick::ALPHACHANNEL_ACTIVATE);
+                } catch (\Throwable $e) {}
                 $wm->evaluateImage(\Imagick::EVALUATE_MULTIPLY, $opacity / 100, \Imagick::CHANNEL_ALPHA);
             }
 
@@ -329,15 +333,30 @@ class Watermark {
 
             $base->compositeImage($wm, \Imagick::COMPOSITE_OVER, $dx, $dy);
             $format = strtolower($base->getImageFormat());
+            $quality = 90;
+            try {
+                $quality = max(1, min(100, (int) Settings::instance()->get('wso_quality', 75)));
+            } catch (\Throwable $e) {}
             if (in_array($format, ['jpeg', 'jpg'], true)) {
-                $base->setImageCompressionQuality(90);
+                $base->setImageCompressionQuality($quality);
+            } elseif (in_array($format, ['webp', 'avif'], true)) {
+                $base->setImageCompressionQuality($quality);
             }
-            $res = $base->writeImage($image_path);
+            $tmp = $image_path . '.tmp';
+            $res = $base->writeImage($tmp);
 
             $base->clear();
             $wm->clear();
+            if (!$res || !file_exists($tmp) || filesize($tmp) <= 0) {
+                @unlink($tmp);
+                return false;
+            }
+            if (!@rename($tmp, $image_path)) {
+                @unlink($tmp);
+                return false;
+            }
 
-            return (bool) $res;
+            return true;
         } catch (\Throwable $e) {
             return false;
         }
@@ -352,17 +371,49 @@ class Watermark {
     private function gd_load(string $path): array {
         $info = @getimagesize($path);
         if (!$info) {
+            // Try string loader for AVIF/GIF where getimagesize may fail on old PHP.
+            $raw = @file_get_contents($path);
+            if (false !== $raw) {
+                $tmp_img = @imagecreatefromstring($raw);
+                unset($raw);
+                if ($tmp_img) {
+                    return [$tmp_img, 'image/jpeg'];
+                }
+            }
             return [null, ''];
         }
         $mime = $info['mime'] ?? '';
-        $img = match ($mime) {
-            'image/jpeg' => @imagecreatefromjpeg($path),
-            'image/png'  => @imagecreatefrompng($path),
-            'image/webp' => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($path) : false,
-            default      => false,
-        };
+        $img = false;
+        switch ($mime) {
+            case 'image/jpeg':
+                $img = @imagecreatefromjpeg($path);
+                break;
+            case 'image/png':
+                $img = @imagecreatefrompng($path);
+                break;
+            case 'image/webp':
+                $img = function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($path) : false;
+                break;
+            case 'image/avif':
+                if (function_exists('imagecreatefromavif')) {
+                    $img = @imagecreatefromavif($path);
+                } else {
+                    $raw = @file_get_contents($path);
+                    $img = (false !== $raw) ? @imagecreatefromstring($raw) : false;
+                }
+                break;
+            case 'image/gif':
+                $img = function_exists('imagecreatefromgif') ? @imagecreatefromgif($path) : false;
+                break;
+            default:
+                $img = false;
+        }
         if (!$img) {
             return [null, ''];
+        }
+        // Normalize mime for downstream save: AVIF/GIF bases are saved as JPEG/PNG.
+        if ('image/avif' === $mime || 'image/gif' === $mime) {
+            $mime = 'image/jpeg';
         }
         return [$img, $mime];
     }
@@ -444,17 +495,34 @@ class Watermark {
             }
         }
 
-        $saved = match ($base_mime) {
-            'image/jpeg' => @imagejpeg($base, $image_path, 90),
-            'image/png'  => @imagepng($base, $image_path, 9),
-            'image/webp' => function_exists('imagewebp') ? @imagewebp($base, $image_path, 90) : false,
-            default      => false,
-        };
+        $saved = false;
+        $quality = 75;
+        try {
+            $quality = max(1, min(100, (int) Settings::instance()->get('wso_quality', 75)));
+        } catch (\Throwable $e) {}
+        $tmp = $image_path . '.tmp';
+        if ('image/jpeg' === $base_mime) {
+            $saved = @imagejpeg($base, $tmp, $quality);
+        } elseif ('image/png' === $base_mime) {
+            $saved = @imagepng($base, $tmp, 6);
+        } elseif ('image/webp' === $base_mime) {
+            $saved = function_exists('imagewebp') ? @imagewebp($base, $tmp, $quality) : false;
+        } else {
+            $saved = false;
+        }
 
         imagedestroy($base);
         imagedestroy($wm);
 
-        return (bool) $saved && file_exists($image_path) && filesize($image_path) > 0;
+        if (!$saved || !file_exists($tmp) || filesize($tmp) <= 0) {
+            @unlink($tmp);
+            return false;
+        }
+        if (!@rename($tmp, $image_path)) {
+            @unlink($tmp);
+            return false;
+        }
+        return file_exists($image_path) && filesize($image_path) > 0;
     }
 
     /**
