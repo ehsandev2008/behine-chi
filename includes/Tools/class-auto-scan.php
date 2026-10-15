@@ -62,7 +62,7 @@ class Auto_Scan {
         $args = [
             'post_type'      => 'attachment',
             'post_status'    => 'inherit',
-            'post_mime_type' => ['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/svg+xml'],
+            'post_mime_type' => ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif', 'image/svg+xml'],
             'posts_per_page' => 10,
             'fields'         => 'ids',
             'no_found_rows'  => true,

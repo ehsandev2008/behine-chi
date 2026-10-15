@@ -88,8 +88,16 @@ class Notifications {
      */
     public function get_notifications(int $limit = 50, int $offset = 0, string $type = '', string $search = ''): array {
         global $wpdb;
-        $db = Database::instance();
-        $table = $db->notifications_table;
+        try {
+            $db = Database::instance();
+            $table = $db->notifications_table;
+            if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table)) !== $table) {
+                $db->create_tables();
+                return [];
+            }
+        } catch (\Throwable $e) {
+            return [];
+        }
         $limit = max(1, min(100, $limit));
         $offset = max(0, $offset);
         $type = sanitize_key($type);
@@ -103,9 +111,9 @@ class Notifications {
             $params[] = $type;
         }
 
-        if (!empty($search)) {
+        if ('' !== $search) {
             $where[] = 'message LIKE %s';
-            $params[] = '%' . $wpdb->esc_like($search) . '%';
+            $params[] = '%' . $wpdb->esc_like(mb_substr($search, 0, 200)) . '%';
         }
 
         $where_clause = implode(' AND ', $where);
@@ -113,7 +121,11 @@ class Notifications {
         $params[] = $limit;
         $params[] = $offset;
 
-        $results = $wpdb->get_results($wpdb->prepare($query, ...$params), ARRAY_A);
+        try {
+            $results = $wpdb->get_results($wpdb->prepare($query, ...$params), ARRAY_A);
+        } catch (\Throwable $e) {
+            return [];
+        }
         return $results ?: [];
     }
 

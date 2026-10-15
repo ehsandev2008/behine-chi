@@ -237,7 +237,7 @@ class Imagick_Driver implements Image_Driver {
                 return false;
             }
             $format = strtoupper($imagick->getImageFormat());
-            if (!in_array($format, ['JPEG', 'JPG', 'WEBP', 'PNG'], true)) {
+            if (!in_array($format, ['JPEG', 'JPG', 'WEBP', 'PNG', 'AVIF'], true)) {
                 $imagick->clear();
                 $imagick->destroy();
                 return false;

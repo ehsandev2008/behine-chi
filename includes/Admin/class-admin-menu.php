@@ -355,16 +355,36 @@ class Admin_Menu {
                             </div>
 
                             <div class="wso-grid wso-grid-2">
+                                <?php
+                                // Initial scan for score display (reused below for the report fallback).
+                                $wso_initial_score = 100;
+                                $wso_initial_status = 'success';
+                                $wso_initial_text = 'سالم و بدون خطا';
+                                $wso_initial_badge = 'wso-badge-success';
+                                try {
+                                    $wso_score_scan = Health_Check::instance()->perform_scan();
+                                    $wso_initial_score = isset($wso_score_scan['score']) ? (int) $wso_score_scan['score'] : 100;
+                                    $wso_initial_status = $wso_score_scan['status'] ?? 'success';
+                                    $wso_initial_text = $wso_score_scan['status_text'] ?? 'سالم و بدون خطا';
+                                    if ('error' === $wso_initial_status) {
+                                        $wso_initial_badge = 'wso-badge-danger';
+                                    } elseif ('warning' === $wso_initial_status) {
+                                        $wso_initial_badge = 'wso-badge-warning';
+                                    }
+                                    // Keep scan for the report box below to avoid scanning twice.
+                                    $wso_initial_scan = $wso_score_scan;
+                                } catch (\Throwable $e) {}
+                                ?>
                                 <div class="wso-card" style="text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center;">
                                     <h3 class="wso-card-title">امتیاز سلامت سیستم</h3>
                                     <div class="wso-health-score-container" style="position: relative; width: 140px; height: 140px; margin: 15px 0;">
                                         <svg class="wso-health-svg" viewBox="0 0 36 36" style="width: 100%; height: 100%;">
                                             <path class="wso-circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="var(--wso-border-color)" stroke-width="3"></path>
-                                            <path class="wso-circle" id="wso-health-circle" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="var(--wso-success)" stroke-width="3" stroke-dasharray="100, 100" style="transition: stroke-dasharray 0.5s ease-in-out;"></path>
+                                            <path class="wso-circle" id="wso-health-circle" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="var(--wso-success)" stroke-width="3" stroke-dasharray="<?php echo esc_attr($wso_initial_score); ?>, 100" style="transition: stroke-dasharray 0.5s ease-in-out;"></path>
                                         </svg>
-                                        <div class="wso-health-score-text" id="wso-health-score-num" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 28px; font-weight: 800;">100%</div>
+                                        <div class="wso-health-score-text" id="wso-health-score-num" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 28px; font-weight: 800;"><?php echo esc_html($wso_initial_score); ?>%</div>
                                     </div>
-                                    <span class="wso-badge wso-badge-success" id="wso-health-score-label" style="font-size: 14px; padding: 4px 12px;">سالم و بدون خطا</span>
+                                    <span class="wso-badge <?php echo esc_attr($wso_initial_badge); ?>" id="wso-health-score-label" style="font-size: 14px; padding: 4px 12px;"><?php echo esc_html($wso_initial_text); ?></span>
                                 </div>
 
                                 <div class="wso-card" style="display: flex; flex-direction: column; justify-content: center; gap: 10px;">
@@ -377,7 +397,48 @@ class Admin_Menu {
                             <div class="wso-card wso-mt-4">
                                 <h3 class="wso-card-title" style="border-bottom:1px solid var(--wso-border-color); padding-bottom:8px;">گزارش جامع وضعیت منابع</h3>
                                 <div class="wso-health-report" id="wso-health-report-box">
-                                    <div class="wso-loading-skeleton" style="height:150px; background:linear-gradient(90deg, var(--wso-secondary) 25%, var(--wso-border-color) 50%, var(--wso-secondary) 75%); background-size:200% 100%; animation:loading-skeleton 1.5s infinite;"></div>
+                                    <?php
+                                    // Server-side fallback: render immediately so the box is never blank
+                                    // even if AJAX is blocked. JS will replace it with fresh data on load.
+                                    try {
+                                        if (!isset($wso_initial_scan) || !is_array($wso_initial_scan)) {
+                                            $wso_initial_scan = Health_Check::instance()->perform_scan();
+                                        }
+                                        $wso_cat_labels = [
+                                            'server'     => 'خصوصیات سرور و فایل‌ها',
+                                            'extensions' => 'افزونه‌های ضروری PHP',
+                                            'formats'    => 'وضعیت فشرده‌سازی فرمت‌ها',
+                                            'wordpress'  => 'تنظیمات بستر وردپرس',
+                                            'integrity'  => 'سلامت ساختار و پوشه‌ها',
+                                            'engine'     => 'وضعیت ماژول‌های بهینه‌ساز',
+                                        ];
+                                        foreach ($wso_cat_labels as $wso_cat_key => $wso_cat_label) {
+                                            if (empty($wso_initial_scan[$wso_cat_key]) || !is_array($wso_initial_scan[$wso_cat_key])) {
+                                                continue;
+                                            }
+                                            echo '<div class="wso-health-group-title">' . esc_html($wso_cat_label) . '</div>';
+                                            echo '<div class="wso-grid wso-grid-2">';
+                                            foreach ($wso_initial_scan[$wso_cat_key] as $wso_check) {
+                                                if (!is_array($wso_check)) {
+                                                    continue;
+                                                }
+                                                $wso_st = $wso_check['status'] ?? '';
+                                                $wso_badge = '<span class="wso-badge">—</span>';
+                                                if ('success' === $wso_st) {
+                                                    $wso_badge = '<span class="wso-badge wso-badge-success">سالم</span>';
+                                                } elseif ('warning' === $wso_st) {
+                                                    $wso_badge = '<span class="wso-badge wso-badge-warning">هشدار</span>';
+                                                } elseif ('error' === $wso_st) {
+                                                    $wso_badge = '<span class="wso-badge wso-badge-danger">خطا</span>';
+                                                }
+                                                echo '<div class="wso-health-item"><div class="wso-health-item-left"><span class="wso-health-item-label">' . esc_html($wso_check['label'] ?? '') . ': <strong style="color:var(--wso-primary);">' . esc_html($wso_check['value'] ?? '') . '</strong></span><span class="wso-health-item-desc">' . esc_html($wso_check['desc'] ?? '') . '</span></div><div class="wso-health-item-right">' . $wso_badge . '</div></div>';
+                                            }
+                                            echo '</div>';
+                                        }
+                                    } catch (\Throwable $e) {
+                                        echo '<div class="wso-text-center py-4">در حال بارگذاری گزارش سلامت...</div>';
+                                    }
+                                    ?>
                                 </div>
                             </div>
                         </div>
@@ -436,6 +497,24 @@ class Admin_Menu {
                                     <input type="number" id="wso_max_size" name="wso_max_size" value="<?php echo esc_attr($settings->get('wso_max_size', 2)); ?>" min="1" max="50" class="wso-input-small" />
                                     <p class="wso-field-help">تصاویر سنگین‌تر از این مقدار جهت جلوگیری از مصرف زیاد منابع سرور نادیده گرفته خواهند شد.</p>
                                 </div>
+
+                                <hr class="wso-divider" />
+                                <h3 class="wso-card-title">استثناها (Exclude)</h3>
+                                <div class="wso-field-row">
+                                    <label for="wso_exclude_patterns"><strong>الگوی نام فایل (کاما جدا، * مجاز)</strong></label>
+                                    <input type="text" id="wso_exclude_patterns" name="wso_exclude_patterns" value="<?php echo esc_attr($settings->get('wso_exclude_patterns', '')); ?>" class="wso-input-full" placeholder="logo-*, *-temp.png" />
+                                    <p class="wso-field-help">مثال: logo-*, banner-*.png — این فایل‌ها بهینه نمی‌شوند.</p>
+                                </div>
+                                <div class="wso-grid wso-grid-2 wso-mt-4">
+                                    <div class="wso-field-row">
+                                        <label for="wso_exclude_post_types"><strong>نوع پست والد (کاما جدا)</strong></label>
+                                        <input type="text" id="wso_exclude_post_types" name="wso_exclude_post_types" value="<?php echo esc_attr($settings->get('wso_exclude_post_types', '')); ?>" class="wso-input-small" placeholder="product" />
+                                    </div>
+                                    <div class="wso-field-row">
+                                        <label for="wso_exclude_below_kb"><strong>نادیده گرفتن فایل‌های کوچک‌تر از (کیلوبایت)</strong></label>
+                                        <input type="number" id="wso_exclude_below_kb" name="wso_exclude_below_kb" value="<?php echo esc_attr($settings->get('wso_exclude_below_kb', 0)); ?>" min="0" max="50000" class="wso-input-small" />
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -443,38 +522,36 @@ class Admin_Menu {
                         <div id="tab-compression" class="wso-tab-pane">
                             <h2 class="wso-pane-title">کیفیت فشرده‌سازی و ابعاد تصویر</h2>
 
-                            <div class="wso-card">
-                                <div class="wso-field-row">
-                                    <label for="wso_quality"><strong>کیفیت خروجی تصاویر (۱۰ تا ۱۰۰)</strong></label>
-                                    <div class="wso-slider-wrapper">
-                                        <input type="range" id="wso_quality" name="wso_quality" value="<?php echo esc_attr($settings->get('wso_quality', 82)); ?>" min="10" max="100" oninput="jQuery('#wso_quality_val').text(this.value);" />
-                                        <span id="wso_quality_val" class="wso-badge wso-badge-primary"><?php echo esc_html($settings->get('wso_quality', 82)); ?></span>
+                            <div class="wso-card wso-min-card">
+                                <div class="wso-min-section">
+                                    <div class="wso-min-row">
+                                        <div class="wso-min-row-text"><strong>کیفیت پایه (۱۰ تا ۱۰۰)</strong><span>پیشنهاد ۸۰ تا ۸۵ برای تعادل حجم و کیفیت.</span></div>
+                                        <div class="wso-min-slider"><input type="range" id="wso_quality" name="wso_quality" value="<?php echo esc_attr($settings->get('wso_quality', 82)); ?>" min="10" max="100" oninput="jQuery('#wso_quality_val').text(this.value);" /><span id="wso_quality_val" class="wso-min-num"><?php echo esc_html($settings->get('wso_quality', 82)); ?></span></div>
                                     </div>
-                                    <p class="wso-field-help">بهترین کیفیت فشرده‌سازی پیشنهادی بین ۸۰ تا ۸۵ است تا تعادل در حجم و کیفیت حفظ شود.</p>
-                                </div>
-
-                                <div class="wso-form-group wso-mt-4">
-                                    <label class="wso-toggle-label">
+                                    <label class="wso-toggle-label wso-min-toggle">
                                         <input type="checkbox" name="wso_strip_exif" value="1" <?php checked(1, $settings->get('wso_strip_exif', 1)); ?>>
                                         <span class="wso-toggle-slider"></span>
                                         <span class="wso-toggle-text">
-                                            <strong>حذف فراداده‌ها و اطلاعات EXIF تصاویر</strong>
-                                            <small>پاکسازی کدهای اضافی دوربین، لوکیشن و تگ‌ها جهت سبک‌تر شدن حجم تصاویر.</small>
+                                            <strong>حذف EXIF</strong>
+                                            <small>پاکسازی متادیتای دوربین و لوکیشن.</small>
                                         </span>
                                     </label>
                                 </div>
 
-                                <hr class="wso-divider" />
-
-                                <h3 class="wso-card-title">تغییر اندازه خودکار ابعاد بزرگ</h3>
-                                <div class="wso-grid wso-grid-2">
-                                    <div class="wso-field-row">
-                                        <label for="wso_max_width"><strong>حداکثر عرض مجاز (پیکسل)</strong></label>
-                                        <input type="number" id="wso_max_width" name="wso_max_width" value="<?php echo esc_attr($settings->get('wso_max_width', 2560)); ?>" class="wso-input-small" />
+                                <div class="wso-min-section">
+                                    <div class="wso-min-section-title">کیفیت هر فرمت</div>
+                                    <div class="wso-min-grid3">
+                                        <label class="wso-min-num-field"><span>WebP</span><input type="number" id="wso_quality_webp" name="wso_quality_webp" value="<?php echo esc_attr($settings->get('wso_quality_webp', 82)); ?>" min="10" max="100" /></label>
+                                        <label class="wso-min-num-field"><span>AVIF</span><input type="number" id="wso_quality_avif" name="wso_quality_avif" value="<?php echo esc_attr($settings->get('wso_quality_avif', 75)); ?>" min="10" max="100" /></label>
+                                        <label class="wso-min-num-field"><span>بندانگشتی</span><input type="number" id="wso_quality_thumb" name="wso_quality_thumb" value="<?php echo esc_attr($settings->get('wso_quality_thumb', 78)); ?>" min="10" max="100" /></label>
                                     </div>
-                                    <div class="wso-field-row">
-                                        <label for="wso_max_height"><strong>حداکثر ارتفاع مجاز (پیکسل)</strong></label>
-                                        <input type="number" id="wso_max_height" name="wso_max_height" value="<?php echo esc_attr($settings->get('wso_max_height', 2560)); ?>" class="wso-input-small" />
+                                </div>
+
+                                <div class="wso-min-section">
+                                    <div class="wso-min-section-title">سقف ابعاد (پیکسل، ۰ = بدون سقف)</div>
+                                    <div class="wso-min-grid2">
+                                        <label class="wso-min-num-field"><span>حداکثر عرض</span><input type="number" id="wso_max_width" name="wso_max_width" value="<?php echo esc_attr($settings->get('wso_max_width', 2560)); ?>" min="0" max="8000" /></label>
+                                        <label class="wso-min-num-field"><span>حداکثر ارتفاع</span><input type="number" id="wso_max_height" name="wso_max_height" value="<?php echo esc_attr($settings->get('wso_max_height', 2560)); ?>" min="0" max="8000" /></label>
                                     </div>
                                 </div>
                             </div>
@@ -526,6 +603,51 @@ class Admin_Menu {
 
                                 <hr class="wso-divider" />
 
+                                <h3 class="wso-card-title">تبدیل همگانی به WebP / AVIF</h3>
+                                <?php
+                                $wso_webp_ok = false;
+                                $wso_avif_ok = false;
+                                try {
+                                    $wso_conv_driver = Optimizer::instance()->get_driver();
+                                    $wso_webp_ok = $wso_conv_driver->supports_webp();
+                                    $wso_avif_ok = $wso_conv_driver->supports_avif();
+                                } catch (\Throwable $e) {}
+                                ?>
+                                <div class="wso-conv-panel">
+                                    <div class="wso-field-label">حالت عملیات همگانی</div>
+                                    <div class="wso-seg" id="wso-bulk-mode-seg" role="radiogroup" aria-label="حالت عملیات">
+                                        <label class="wso-seg-opt active"><input type="radio" name="wso_bulk_mode_ui" value="optimize" checked><span>بهینه‌سازی</span><small>فشرده + WebP/AVIF</small></label>
+                                        <label class="wso-seg-opt"><input type="radio" name="wso_bulk_mode_ui" value="convert"><span>تبدیل همگانی</span><small>به فرمت نسل جدید</small></label>
+                                    </div>
+                                    <select id="wso-bulk-mode" class="wso-hidden-select" aria-hidden="true" tabindex="-1">
+                                        <option value="optimize" selected>optimize</option>
+                                        <option value="convert">convert</option>
+                                    </select>
+                                    <div class="wso-field-label wso-mt-4">فرمت هدف <span class="wso-hint">فقط در حالت تبدیل اعمال می‌شود</span></div>
+                                    <div class="wso-seg wso-seg-2" id="wso-bulk-format-seg" role="radiogroup" aria-label="فرمت هدف">
+                                        <label class="wso-seg-opt active<?php echo $wso_webp_ok ? '' : ' is-disabled'; ?>"><input type="radio" name="wso_bulk_format_ui" value="webp" checked<?php echo $wso_webp_ok ? '' : ' disabled'; ?>><span>WebP</span><small><?php echo $wso_webp_ok ? 'پشتیبانی می‌شود' : 'پشتیبانی نمی‌شود'; ?></small></label>
+                                        <label class="wso-seg-opt<?php echo $wso_avif_ok ? '' : ' is-disabled'; ?>"><input type="radio" name="wso_bulk_format_ui" value="avif"<?php echo $wso_avif_ok ? '' : ' disabled'; ?>><span>AVIF</span><small><?php echo $wso_avif_ok ? 'فشرده‌تر • سنگین‌تر' : 'پشتیبانی نمی‌شود'; ?></small></label>
+                                    </div>
+                                    <select id="wso-bulk-format" class="wso-hidden-select" aria-hidden="true" tabindex="-1">
+                                        <option value="webp" selected>webp</option>
+                                        <option value="avif">avif</option>
+                                    </select>
+                                    <div class="wso-conv-quality">
+                                        <div class="wso-field-label">کیفیت تبدیل <span class="wso-quality-num"><span id="wso-bulk-quality-val">82</span>/100</span></div>
+                                        <input type="range" id="wso-bulk-quality-range" min="10" max="100" value="<?php echo esc_attr($settings->get('wso_quality', 82)); ?>" />
+                                        <input type="hidden" id="wso-bulk-quality" value="<?php echo esc_attr($settings->get('wso_quality', 82)); ?>" />
+                                    </div>
+                                    <div class="wso-conv-actions">
+                                        <button type="button" class="wso-btn wso-btn-primary" id="wso-start-convert">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                                            <span>شروع تبدیل همگانی</span>
+                                        </button>
+                                        <button type="button" class="wso-btn wso-btn-secondary" onclick="jQuery('a[data-tab=tab-bulk]').click();">مشاهده پیشرفت در تب همگانی</button>
+                                    </div>
+                                </div>
+
+                                <hr class="wso-divider" />
+
                                 <h3 class="wso-card-title">تنظیمات پیشرفته</h3>
 
                                 <div class="wso-form-group wso-mt-4">
@@ -568,6 +690,28 @@ class Admin_Menu {
                                         <span class="wso-toggle-text">
                                             <strong>تبدیل در زمان نمایش (On-the-fly)</strong>
                                             <small>سرو کردن تصاویر WebP/AVIF به مرورگرهای سازگار بدون تغییر فایل‌های اصلی.</small>
+                                        </span>
+                                    </label>
+                                </div>
+
+                                <div class="wso-form-group wso-mt-4">
+                                    <label class="wso-toggle-label">
+                                        <input type="checkbox" name="wso_picture_delivery" value="1" <?php checked(1, $settings->get('wso_picture_delivery', 0)); ?>>
+                                        <span class="wso-toggle-slider"></span>
+                                        <span class="wso-toggle-text">
+                                            <strong>تحویل picture/srcset در فرانت‌اند</strong>
+                                            <small>پیچیدن خودکار img در picture با sourceهای WebP/AVIF موجود + دکمه نمایش رول htaccess/nginx در ابزارها.</small>
+                                        </span>
+                                    </label>
+                                </div>
+
+                                <div class="wso-form-group wso-mt-4">
+                                    <label class="wso-toggle-label">
+                                        <input type="checkbox" name="wso_weekly_report" value="1" <?php checked(1, $settings->get('wso_weekly_report', 0)); ?>>
+                                        <span class="wso-toggle-slider"></span>
+                                        <span class="wso-toggle-text">
+                                            <strong>گزارش هفتگی</strong>
+                                            <small>ارسال خلاصه هفتگی به مرکز اعلان‌ها (و تلگرام/اسلک اگر تنظیم شده).</small>
                                         </span>
                                     </label>
                                 </div>
@@ -702,39 +846,35 @@ class Admin_Menu {
 
                         <!-- TAB 6: BULK OPTIMIZATION -->
                         <div id="tab-bulk" class="wso-tab-pane">
-                            <h2 class="wso-pane-title">صفحه مدیریت بهینه‌سازی همگانی تصاویر</h2>
+                            <div class="wso-min-head">
+                                <div>
+                                    <h2 class="wso-pane-title" style="margin:0;">بهینه‌سازی همگانی</h2>
+                                    <p class="wso-min-sub">اجرای صف در بسته‌های کوچک؛ فرمت و کیفیت از تب «تبدیل به WebP و AVIF» خوانده می‌شود.</p>
+                                </div>
+                                <span class="wso-status-pill" id="wso-bulk-mode-hint">حالت فعلی: بهینه‌سازی</span>
+                            </div>
 
-                            <div class="wso-card">
-                                <p>شما می‌توانید کل تصاویر آپلود شده در رسانه وردپرس را به صورت یکجا و در قالب بسته‌های کوچک بدون ایجاد فشار در منابع سرور پردازش کنید.</p>
-
-                                <div class="wso-bulk-controls" style="display:flex; gap:10px; margin: 15px 0;">
+                            <div class="wso-card wso-min-card">
+                                <div class="wso-min-toolbar">
                                     <button type="button" class="wso-btn wso-btn-primary" id="wso-start-bulk">
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                                        <span>شروع پردازش دسته جمعی</span>
+                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                                        <span>شروع</span>
                                     </button>
-                                    <button type="button" class="wso-btn wso-btn-secondary" id="wso-pause-bulk" style="display:none;">
-                                        توقف موقت
-                                    </button>
-                                    <button type="button" class="wso-btn wso-btn-danger" id="wso-reset-bulk">
-                                        پاکسازی و ریست صف
-                                    </button>
+                                    <button type="button" class="wso-btn wso-btn-secondary" id="wso-pause-bulk" style="display:none;">توقف</button>
+                                    <button type="button" class="wso-btn wso-btn-secondary" id="wso-estimate-bulk">تخمین صرفه‌جویی</button>
+                                    <button type="button" class="wso-min-linkdanger" id="wso-reset-bulk">ریست صف</button>
+                                    <button type="button" class="wso-link" onclick="jQuery('a[data-tab=tab-conversion]').click();">تنظیم فرمت در تب تبدیل</button>
+                                </div>
+                                <div id="wso-estimate-box" class="wso-min-note"></div>
+
+                                <div class="wso-min-progress" style="display:none;" id="wso-progress-box">
+                                    <div class="wso-min-progress-top"><span id="wso-progress-text">۰ / ۰</span><span id="wso-progress-percent">۰٪</span></div>
+                                    <div class="wso-progress-bar-bg wso-min-bar"><div class="wso-progress-bar-fill" id="wso-progress-fill" style="width: 0%;"></div></div>
                                 </div>
 
-                                <div class="wso-progress-container wso-mt-4" style="display:none;" id="wso-progress-box">
-                                    <div class="wso-progress-bar-bg">
-                                        <div class="wso-progress-bar-fill" id="wso-progress-fill" style="width: 0%;"></div>
-                                    </div>
-                                    <div class="wso-progress-status">
-                                        <span id="wso-progress-text">۰ / ۰ تصویر</span>
-                                        <span id="wso-progress-percent">۰٪</span>
-                                    </div>
-                                </div>
-
-                                <div class="wso-live-log-container wso-mt-4">
-                                    <h4>لاگ و پیشرفت زنده صف</h4>
-                                    <div class="wso-log-feed" id="wso-log-feed">
-                                        <div class="wso-log-entry info">سیستم صف بهینه‌سازی همگانی آماده به کار است.</div>
-                                    </div>
+                                <div class="wso-min-loghead"><span>رویدادهای صف</span></div>
+                                <div class="wso-log-feed wso-min-log" id="wso-log-feed">
+                                    <div class="wso-log-entry info">صف آماده است.</div>
                                 </div>
                             </div>
                         </div>
@@ -970,22 +1110,46 @@ class Admin_Menu {
 
                         <!-- TAB 13: TOOLS & CACHE -->
                         <div id="tab-tools" class="wso-tab-pane">
-                            <h2 class="wso-pane-title">ابزارهای پاکسازی کش و نگهداری</h2>
+                            <h2 class="wso-pane-title">ابزارها و نگهداری</h2>
 
-                            <div class="wso-card">
-                                <h3>پاکسازی کل کش فایل‌های WebP و AVIF</h3>
-                                <p>تمامی نسخه‌های شبیه‌سازی و تولید شده با پسوند webp و avif از پوشه آپلودها حذف می‌شوند.</p>
-                                <button type="button" class="wso-btn wso-btn-secondary" id="wso-btn-clear-cache">
-                                    پاکسازی کامل کش فرمت‌های جدید
-                                </button>
-
-                                <hr class="wso-divider" />
-
-                                <h3>حذف همیشگی تصاویر پشتیبان (wso-backups)</h3>
-                                <p>نسخه‌های کپی شده اصلی تصاویر آپلود شده به صورت دائمی از هاست حذف می‌شوند (آزادکننده فضا).</p>
-                                <button type="button" class="wso-btn wso-btn-danger" id="wso-btn-clear-backups">
-                                    پاکسازی فایل‌های پشتیبان اصلی
-                                </button>
+                            <div class="wso-card wso-min-card">
+                                <div class="wso-tool-row">
+                                    <div class="wso-tool-text"><strong>پاکسازی کش WebP و AVIF</strong><span>حذف نسخه‌های تولیدشده از پوشه آپلودها.</span></div>
+                                    <button type="button" class="wso-btn wso-btn-secondary wso-btn-sm" id="wso-btn-clear-cache">پاکسازی کش</button>
+                                </div>
+                                <div class="wso-tool-row">
+                                    <div class="wso-tool-text"><strong>حذف بکاپ‌ها (wso-backups)</strong><span>آزادسازی فضا؛ غیرقابل بازگشت.</span></div>
+                                    <button type="button" class="wso-btn wso-btn-secondary wso-btn-sm" id="wso-btn-clear-backups">حذف بکاپ‌ها</button>
+                                </div>
+                                <div class="wso-tool-row">
+                                    <div class="wso-tool-text"><strong>نگهداری خودکار</strong><span>حذف بکاپ قدیمی، اعمال سقف حجم، هرس لاگ.</span></div>
+                                    <button type="button" class="wso-btn wso-btn-secondary wso-btn-sm" id="wso-btn-run-maintenance">اجرا</button>
+                                </div>
+                                <div class="wso-min-grid3 wso-min-pad">
+                                    <label class="wso-min-num-field"><span>بکاپ قدیمی‌تر از (روز)</span><input type="number" id="wso_backup_retention_days" name="wso_backup_retention_days" value="<?php echo esc_attr($settings->get('wso_backup_retention_days', 0)); ?>" min="0" max="3650" /></label>
+                                    <label class="wso-min-num-field"><span>سقف بکاپ (مگ)</span><input type="number" id="wso_backup_quota_mb" name="wso_backup_quota_mb" value="<?php echo esc_attr($settings->get('wso_backup_quota_mb', 0)); ?>" min="0" max="100000" /></label>
+                                    <label class="wso-min-num-field"><span>نگهداری لاگ (روز)</span><input type="number" id="wso_log_retention_days" name="wso_log_retention_days" value="<?php echo esc_attr($settings->get('wso_log_retention_days', 90)); ?>" min="7" max="3650" /></label>
+                                </div>
+                                <div id="wso-maintenance-status" class="wso-min-note"></div>
+                                <div class="wso-tool-row">
+                                    <div class="wso-tool-text"><strong>پردازش فقط در ساعات خلوت</strong><span>برای هاست اشتراکی.</span></div>
+                                    <label class="wso-switch"><input type="checkbox" name="wso_offpeak_enabled" value="1" <?php checked(1, $settings->get('wso_offpeak_enabled', 0)); ?>><span></span></label>
+                                </div>
+                                <div class="wso-min-grid3 wso-min-pad">
+                                    <label class="wso-min-num-field"><span>شروع (۰–۲۳)</span><input type="number" id="wso_offpeak_start" name="wso_offpeak_start" value="<?php echo esc_attr($settings->get('wso_offpeak_start', 1)); ?>" min="0" max="23" /></label>
+                                    <label class="wso-min-num-field"><span>پایان (۰–۲۳)</span><input type="number" id="wso_offpeak_end" name="wso_offpeak_end" value="<?php echo esc_attr($settings->get('wso_offpeak_end', 6)); ?>" min="0" max="23" /></label>
+                                    <label class="wso-min-num-field"><span>سقف در دقیقه</span><input type="number" id="wso_throttle_per_minute" name="wso_throttle_per_minute" value="<?php echo esc_attr($settings->get('wso_throttle_per_minute', 0)); ?>" min="0" max="600" /></label>
+                                </div>
+                                <div class="wso-tool-row">
+                                    <div class="wso-tool-text"><strong>رول سرور WebP/AVIF</strong><span>htaccess یا nginx برای سرو خودکار.</span></div>
+                                    <button type="button" class="wso-btn wso-btn-secondary wso-btn-sm" id="wso-btn-rewrite-rules">نمایش</button>
+                                </div>
+                                <pre id="wso-rewrite-output" class="wso-min-code" style="display:none;"></pre>
+                                <div class="wso-tool-row">
+                                    <div class="wso-tool-text"><strong>ایمپورت تصاویر خارجی</strong><span>انتقال hotlink یک نوشته به کتابخانه.</span></div>
+                                    <div class="wso-min-inline"><input type="number" id="wso-remote-post-id" placeholder="ID نوشته" /><button type="button" class="wso-btn wso-btn-secondary wso-btn-sm" id="wso-btn-import-remote">ایمپورت</button></div>
+                                </div>
+                                <div id="wso-remote-status" class="wso-min-note"></div>
                             </div>
                         </div>
 

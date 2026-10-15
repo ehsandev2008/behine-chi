@@ -145,6 +145,109 @@ class Format_Converter {
     }
 
     /**
+     * Convert a full attachment (main file + all thumbnails) to target format.
+     * Used by bulk "convert to WebP/AVIF" mode.
+     */
+    public function convert_attachment(int $attachment_id, string $target_format, int $quality = 85): array {
+        $target_format = strtolower($target_format);
+        if ('jpg' === $target_format) {
+            $target_format = 'jpeg';
+        }
+        if (!in_array($target_format, ['webp', 'avif'], true)) {
+            return ['success' => false, 'message' => 'فرمت هدف برای تبدیل همگانی فقط WebP یا AVIF است.'];
+        }
+        $file = get_attached_file($attachment_id);
+        if (!$file || !file_exists($file)) {
+            return ['success' => false, 'message' => 'فایل تصویر یافت نشد.'];
+        }
+        $quality = max(1, min(100, $quality));
+
+        $converted = [];
+        $failed = [];
+
+        // 1) Main file.
+        $main_res = $this->convert($file, $target_format, $quality);
+        $new_main_path = '';
+        if (!empty($main_res['success'])) {
+            $new_main_path = $main_res['target_path'];
+            $converted['full'] = $new_main_path;
+        } else {
+            // Already in target format counts as success (nothing to do).
+            $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+            if (('jpeg' === $target_format && in_array($ext, ['jpg', 'jpeg'], true)) || $ext === $target_format) {
+                $converted['full'] = $file;
+            } else {
+                $failed[] = 'full';
+            }
+        }
+
+        // 2) Thumbnails.
+        $meta = wp_get_attachment_metadata($attachment_id);
+        $base_dir = dirname($file);
+        if (!empty($meta['sizes']) && is_array($meta['sizes'])) {
+            foreach ($meta['sizes'] as $size_key => $size_data) {
+                if (empty($size_data['file'])) {
+                    continue;
+                }
+                $thumb_path = $base_dir . '/' . $size_data['file'];
+                if (!file_exists($thumb_path)) {
+                    continue;
+                }
+                $r = $this->convert($thumb_path, $target_format, $quality);
+                if (!empty($r['success'])) {
+                    $converted[$size_key] = $r['target_path'];
+                    $meta['sizes'][$size_key]['file'] = basename($r['target_path']);
+                    $meta['sizes'][$size_key]['mime-type'] = 'image/' . $target_format;
+                } else {
+                    $ext = strtolower(pathinfo($thumb_path, PATHINFO_EXTENSION));
+                    if ($ext === $target_format || ('jpeg' === $target_format && 'jpg' === $ext)) {
+                        $converted[$size_key] = $thumb_path;
+                    } else {
+                        $failed[] = (string) $size_key;
+                    }
+                }
+            }
+        }
+
+        if ('' !== $new_main_path && file_exists($new_main_path)) {
+            $upload_dir = wp_upload_dir();
+            $basedir_norm = wp_normalize_path($upload_dir['basedir']);
+            $conv_norm = wp_normalize_path($new_main_path);
+            $relative_path = ltrim(substr($conv_norm, strlen($basedir_norm)), '/');
+            if ('' === $relative_path) {
+                $relative_path = ltrim(str_replace(wp_normalize_path($upload_dir['basedir']), '', $new_main_path), '/\\');
+            }
+            update_post_meta($attachment_id, '_wp_attached_file', $relative_path);
+            if (is_array($meta)) {
+                $meta['file'] = $relative_path;
+            }
+            global $wpdb;
+            $wpdb->update(
+                $wpdb->posts,
+                ['post_mime_type' => 'image/' . $target_format],
+                ['ID' => $attachment_id],
+                ['%s'],
+                ['%d']
+            );
+            update_post_meta($attachment_id, '_wso_optimized', 1);
+            delete_transient('wso_upload_dir_scan');
+        }
+
+        if (is_array($meta)) {
+            wp_update_attachment_metadata($attachment_id, $meta);
+        }
+
+        $ok = !empty($converted);
+        return [
+            'success'   => $ok,
+            'status'    => $ok ? 'success' : 'error',
+            'converted' => $converted,
+            'failed'    => $failed,
+            'message'   => $ok ? sprintf('تبدیل به %s انجام شد (%d فایل).', strtoupper($target_format), count($converted)) : 'تبدیل انجام نشد. ' . ($main_res['message'] ?? ''),
+        ];
+    }
+
+    /**
      * Get list of supported conversion formats.
      */
     public function get_supported_formats(): array {

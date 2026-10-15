@@ -46,9 +46,19 @@ class Queue_Manager {
      *
      * @param int $per_page Items per page.
      * @param int $max_pages Safety cap (0 = unlimited).
+     * @param string $target_format Optional convert target ('' = optimize mode, 'webp'|'avif' = convert mode).
      * @return int Number of newly items queued.
      */
-    public function populate_media_library_queue(int $per_page = 200, int $max_pages = 50): int {
+    public function populate_media_library_queue(int $per_page = 200, int $max_pages = 50, string $target_format = ''): int {
+        global $wpdb;
+        $db = Database::instance();
+        $table = $db->queue_table;
+        $per_page = max(50, min(500, $per_page));
+        $target_format = strtolower(trim($target_format));
+        if (!in_array($target_format, ['', 'webp', 'avif'], true)) {
+            $target_format = '';
+        }
+        $is_convert_mode = ('' !== $target_format);
         global $wpdb;
         $db = Database::instance();
         $table = $db->queue_table;
@@ -67,7 +77,7 @@ class Queue_Manager {
             $args = [
                 'post_type'      => 'attachment',
                 'post_status'    => 'inherit',
-                'post_mime_type' => ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'],
+                'post_mime_type' => ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif', 'image/svg+xml'],
                 'posts_per_page' => $per_page,
                 'paged'          => $paged,
                 'fields'         => 'ids',
@@ -84,10 +94,26 @@ class Queue_Manager {
                     continue;
                 }
 
-                // Skip already-optimized attachments so re-building the queue
-                // never re-queues processed images.
-                if (get_post_meta($id, '_wso_optimized', true)) {
-                    continue;
+                // In optimize mode skip already-optimized attachments so re-building
+                // never re-queues processed images. In convert mode, re-queue unless
+                // the file is already in the target format.
+                if (!$is_convert_mode) {
+                    if (get_post_meta($id, '_wso_optimized', true)) {
+                        continue;
+                    }
+                } else {
+                    $mime = get_post_mime_type($id);
+                    if (('webp' === $target_format && 'image/webp' === $mime) || ('avif' === $target_format && 'image/avif' === $mime)) {
+                        $f = get_attached_file($id);
+                        if ($f) {
+                            $e = strtolower(pathinfo($f, PATHINFO_EXTENSION));
+                            if ($e === $target_format) {
+                                continue;
+                            }
+                        } else {
+                            continue;
+                        }
+                    }
                 }
 
                 $file = get_attached_file($id);
@@ -169,7 +195,7 @@ class Queue_Manager {
             }
         }
 
-        $allowed = ['jpg', 'jpeg', 'png', 'webp', 'avif', 'svg'];
+        $allowed = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'svg'];
         $queued = 0;
         $skipped_existing = 0;
         $skipped_invalid = 0;

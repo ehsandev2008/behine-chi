@@ -1198,6 +1198,131 @@
     font-family: var(--wso-font-family) !important;
 }
 
+/* ============ BehineChi Pro UI layer (grid fix + modern components) ============ */
+.wso-grid-3 { grid-template-columns: repeat(3, 1fr); }
+.wso-hidden-select { position: absolute; opacity: 0; pointer-events: none; width: 1px; height: 1px; }
+.wso-link { background: none; border: none; color: var(--wso-primary); cursor: pointer; font: inherit; padding: 0; text-decoration: underline; }
+.wso-hint { font-weight: 400; font-size: 11px; color: var(--wso-text-muted); }
+.wso-quality-num { font-size: 12px; color: var(--wso-primary); font-weight: 700; }
+
+.wso-card { border-radius: 16px; box-shadow: 0 1px 2px rgba(15,23,42,.05), 0 8px 24px -12px rgba(15,23,42,.18); }
+.wso-pane-title { font-size: 19px; letter-spacing: -.2px; }
+
+/* Segmented control */
+.wso-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.wso-seg-opt { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border: 1.5px solid var(--wso-border-color); border-radius: 12px; cursor: pointer; background: var(--wso-bg-card); transition: var(--wso-transition); margin: 0; }
+.wso-seg-opt input { display: none; }
+.wso-seg-opt span { font-weight: 700; font-size: 13px; }
+.wso-seg-opt small { font-size: 11px; color: var(--wso-text-muted); }
+.wso-seg-opt:hover { border-color: var(--wso-primary); transform: translateY(-1px); }
+.wso-seg-opt.active { border-color: var(--wso-primary); background: linear-gradient(180deg, rgba(59,130,246,.12), rgba(59,130,246,.04)); box-shadow: 0 0 0 3px rgba(59,130,246,.15); }
+.wso-seg-opt.is-disabled { opacity: .5; cursor: not-allowed; }
+
+/* Conversion panel */
+.wso-conv-panel { background: linear-gradient(180deg, var(--wso-secondary), transparent 140%); border: 1px solid var(--wso-border-color); border-radius: 14px; padding: 16px; }
+.wso-field-label { font-weight: 700; font-size: 13px; margin: 4px 0 10px; }
+.wso-conv-quality input[type="range"] { width: 100%; accent-color: var(--wso-primary); }
+.wso-conv-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+
+/* Bulk hero */
+.wso-bulk-hero { display: grid; grid-template-columns: 1.2fr .8fr; gap: 20px; align-items: center; background: linear-gradient(135deg, rgba(59,130,246,.1), rgba(16,185,129,.08)), var(--wso-bg-card); }
+.wso-bulk-hero-text h3 { margin: 0 0 8px; font-size: 16px; }
+.wso-bulk-hero-text p { margin: 0 0 10px; color: var(--wso-text-muted); font-size: 13px; line-height: 1.9; }
+.wso-bulk-meta { font-size: 12px; color: var(--wso-text-muted); background: rgba(255,255,255,.6); border: 1px dashed var(--wso-border-color); border-radius: 10px; padding: 8px 12px; display: inline-block; }
+.wso-bulk-hero-actions { display: flex; flex-direction: column; gap: 10px; }
+.wso-btn-lg { padding: 12px 20px; font-size: 13px; border-radius: 12px; justify-content: center; }
+.wso-btn-ghost-danger { background: transparent; color: var(--wso-danger); border: 1px solid var(--wso-danger); }
+.wso-btn-ghost-danger:hover { background: rgba(239,68,68,.1); }
+.wso-estimate-box { margin-top: 12px; font-size: 12.5px; color: var(--wso-text-muted); background: var(--wso-secondary); border: 1px solid var(--wso-border-color); border-radius: 10px; padding: 10px 14px; min-height: 20px; }
+.wso-estimate-box:empty { display: none; }
+
+/* Inputs */
+.wso-wrap input[type="number"], .wso-wrap input[type="text"], .wso-wrap select, .wso-wrap textarea { transition: border-color .2s, box-shadow .2s; }
+.wso-wrap input:focus, .wso-wrap select:focus, .wso-wrap textarea:focus { border-color: var(--wso-primary) !important; box-shadow: 0 0 0 3px rgba(59,130,246,.18); outline: none; }
+.wso-grid .wso-input-small, .wso-grid-3 .wso-input-small { width: 100%; max-width: 160px; }
+.wso-select { min-height: 40px; border-radius: 10px; }
+
+/* Progress + log terminal */
+.wso-progress-bar-bg { height: 12px; border-radius: 999px; background: var(--wso-secondary); overflow: hidden; }
+.wso-progress-bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--wso-primary), var(--wso-success)); transition: width .4s ease; }
+.wso-log-feed { background: #0b1220; color: #dbeafe; border-radius: 12px; padding: 14px; max-height: 260px; overflow: auto; font-family: ui-monospace, monospace; font-size: 12px; line-height: 2; }
+.wso-log-entry.success { color: #6ee7b7; } .wso-log-entry.error { color: #fca5a5; }
+.wso-log-entry.warning { color: #fcd34d; } .wso-log-entry.info { color: #93c5fd; }
+
+/* Health + notifications polish */
+.wso-health-item { border: 1px solid var(--wso-border-color); }
+.wso-notification-card { border-radius: 12px; }
+#wso-btn-recheck-health.is-loading, .wso-btn.is-loading { opacity: .7; pointer-events: none; }
+
+@media (max-width: 1024px) {
+    .wso-grid-3 { grid-template-columns: repeat(2, 1fr); }
+    .wso-bulk-hero { grid-template-columns: 1fr; }
+}
+@media (max-width: 768px) {
+    .wso-grid-3 { grid-template-columns: 1fr; }
+    .wso-seg { grid-template-columns: 1fr; }
+}
+
+/* ============ Minimal calm layer (bulk / compression / tools) ============ */
+.wso-min-card { padding: 18px; }
+.wso-min-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+.wso-min-sub { margin: 4px 0 0; font-size: 12.5px; color: var(--wso-text-muted); }
+.wso-status-pill { font-size: 12px; font-weight: 600; color: var(--wso-secondary-text); background: var(--wso-secondary); border: 1px solid var(--wso-border-color); border-radius: 999px; padding: 6px 12px; white-space: nowrap; }
+.wso-min-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wso-min-linkdanger { background: none; border: none; color: var(--wso-text-muted); font: inherit; font-size: 12.5px; cursor: pointer; padding: 8px 6px; border-radius: 8px; }
+.wso-min-linkdanger:hover { color: var(--wso-danger); background: rgba(239,68,68,.07); }
+.wso-btn-sm { padding: 7px 12px; font-size: 12px; border-radius: 8px; }
+.wso-min-note { font-size: 12px; color: var(--wso-text-muted); margin-top: 10px; }
+.wso-min-note:empty { display: none; }
+.wso-min-progress { margin-top: 12px; }
+.wso-min-progress-top { display: flex; justify-content: space-between; font-size: 12px; color: var(--wso-text-muted); margin-bottom: 6px; }
+.wso-min-bar { height: 6px; }
+.wso-min-bar .wso-progress-bar-fill { background: var(--wso-primary); }
+.wso-min-loghead { font-size: 12px; font-weight: 700; color: var(--wso-text-muted); margin: 14px 0 6px; }
+.wso-min-log { background: var(--wso-bg-card); color: var(--wso-secondary-text); border: 1px solid var(--wso-border-color); border-radius: 10px; padding: 10px 12px; max-height: 220px; font-family: inherit; font-size: 12px; line-height: 2; }
+.wso-min-log .wso-log-entry.success { color: var(--wso-success); }
+.wso-min-log .wso-log-entry.error { color: var(--wso-danger); }
+.wso-min-log .wso-log-entry.warning { color: var(--wso-warning); }
+.wso-min-log .wso-log-entry.info { color: var(--wso-text-muted); }
+
+.wso-min-section { padding: 12px 0; border-top: 1px solid var(--wso-border-color); }
+.wso-min-section:first-child { border-top: none; padding-top: 0; }
+.wso-min-section-title { font-size: 13px; font-weight: 700; margin-bottom: 10px; }
+.wso-min-row { display: flex; justify-content: space-between; align-items: center; gap: 14px; }
+.wso-min-row-text { display: flex; flex-direction: column; gap: 2px; }
+.wso-min-row-text strong { font-size: 13px; }
+.wso-min-row-text span { font-size: 12px; color: var(--wso-text-muted); }
+.wso-min-slider { display: flex; align-items: center; gap: 10px; min-width: 220px; }
+.wso-min-slider input[type="range"] { width: 160px; accent-color: var(--wso-primary); }
+.wso-min-num { font-size: 12px; font-weight: 700; background: var(--wso-secondary); border: 1px solid var(--wso-border-color); border-radius: 8px; padding: 4px 10px; min-width: 36px; text-align: center; }
+.wso-min-toggle { margin-top: 10px; }
+.wso-min-grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.wso-min-grid2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.wso-min-num-field { display: flex; flex-direction: column; gap: 6px; background: var(--wso-bg-card); border: 1px solid var(--wso-border-color); border-radius: 10px; padding: 10px 12px; margin: 0; }
+.wso-min-num-field span { font-size: 12px; font-weight: 600; color: var(--wso-text-muted); }
+.wso-min-num-field input { border: 1px solid var(--wso-border-color); border-radius: 8px; padding: 7px 10px; font: inherit; background: transparent; color: inherit; width: 100%; }
+.wso-tool-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--wso-border-color); }
+.wso-tool-row:first-child { border-top: none; padding-top: 0; }
+.wso-tool-text { display: flex; flex-direction: column; gap: 2px; }
+.wso-tool-text strong { font-size: 13px; }
+.wso-tool-text span { font-size: 12px; color: var(--wso-text-muted); }
+.wso-min-pad { padding: 4px 0 12px; }
+.wso-min-code { direction: ltr; text-align: left; background: var(--wso-secondary); color: var(--wso-secondary-text); border: 1px solid var(--wso-border-color); padding: 10px 12px; border-radius: 10px; overflow: auto; max-height: 220px; font-size: 11px; }
+.wso-min-inline { display: flex; gap: 8px; align-items: center; }
+.wso-min-inline input { border: 1px solid var(--wso-border-color); border-radius: 8px; padding: 7px 10px; font: inherit; width: 110px; background: transparent; color: inherit; }
+.wso-switch { position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0; }
+.wso-switch input { opacity: 0; width: 0; height: 0; }
+.wso-switch span { position: absolute; inset: 0; background: var(--wso-border-color); border-radius: 999px; transition: .2s; }
+.wso-switch span:before { content: ""; position: absolute; width: 16px; height: 16px; border-radius: 50%; background: #fff; top: 3px; right: 3px; transition: .2s; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+.wso-switch input:checked + span { background: var(--wso-primary); }
+.wso-switch input:checked + span:before { transform: translateX(-18px); }
+@media (max-width: 768px) {
+    .wso-min-head { flex-direction: column; }
+    .wso-min-row { flex-direction: column; align-items: stretch; }
+    .wso-min-grid3, .wso-min-grid2 { grid-template-columns: 1fr; }
+    .wso-tool-row { flex-direction: column; align-items: stretch; }
+}
+
 /* Preserve monospace for code and log console feeds */
 .wso-wrap code,
 .wso-wrap pre,

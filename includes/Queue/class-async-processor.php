@@ -70,8 +70,30 @@ class Async_Processor {
             wp_send_json_error(['message' => 'افزونه غیرفعال است و امکان ساخت صف وجود ندارد.'], 400);
         }
 
+        $bulk_mode = sanitize_key($_POST['bulk_mode'] ?? 'optimize');
+        $target_format = strtolower(sanitize_key($_POST['target_format'] ?? ''));
+        if (!in_array($bulk_mode, ['optimize', 'convert'], true)) {
+            $bulk_mode = 'optimize';
+        }
+        if (!in_array($target_format, ['webp', 'avif'], true)) {
+            $target_format = 'webp';
+        }
+
+        // Capability gate for convert mode: driver must support the target.
+        if ('convert' === $bulk_mode) {
+            try {
+                $drv = Optimizer::instance()->get_driver();
+                $supported = ('avif' === $target_format) ? $drv->supports_avif() : $drv->supports_webp();
+                if (!$supported) {
+                    wp_send_json_error(['message' => sprintf('درایور فعال سرور از فرمت %s پشتیبانی نمی‌کند.', strtoupper($target_format))], 400);
+                }
+            } catch (\Throwable $e) {}
+        } else {
+            $target_format = '';
+        }
+
         $manager = Queue_Manager::instance();
-        $new_count = $manager->populate_media_library_queue();
+        $new_count = $manager->populate_media_library_queue(200, 50, $target_format);
         $stats = $manager->get_stats();
         $total_pending = $stats['pending'] ?? 0;
 
@@ -81,6 +103,8 @@ class Async_Processor {
             'newly_added'   => $new_count,
             'total_pending' => $total_pending,
             'stats'         => $stats,
+            'bulk_mode'     => $bulk_mode,
+            'target_format' => $target_format,
         ]);
     }
 
@@ -97,6 +121,13 @@ class Async_Processor {
             wp_send_json_error(['message' => 'افزونه غیرفعال است و امکان پردازش وجود ندارد.'], 400);
         }
 
+        if (class_exists('WSO\\Tools\\Scheduler')) {
+            $gate = \WSO\Tools\Scheduler::bulk_allowed();
+            if (empty($gate['allowed'])) {
+                wp_send_json_error(['message' => (string) ($gate['reason'] ?? 'پردازش در این زمان مجاز نیست.'), 'retry' => true], 429);
+            }
+        }
+
         // Time-box each batch so slow AVIF encodes cannot hit PHP max_execution_time.
         @set_time_limit(120);
         @ini_set('max_execution_time', '120');
@@ -105,6 +136,20 @@ class Async_Processor {
 
         $batch_size = (int) ($_POST['batch_size'] ?? 3);
         $batch_size = max(1, min(5, $batch_size));
+
+        $bulk_mode = sanitize_key($_POST['bulk_mode'] ?? 'optimize');
+        $target_format = strtolower(sanitize_key($_POST['target_format'] ?? 'webp'));
+        if (!in_array($bulk_mode, ['optimize', 'convert'], true)) {
+            $bulk_mode = 'optimize';
+        }
+        if (!in_array($target_format, ['webp', 'avif'], true)) {
+            $target_format = 'webp';
+        }
+        // AVIF encode is CPU-heavy: use smaller batches to stay within time-box.
+        if ('convert' === $bulk_mode && 'avif' === $target_format) {
+            $batch_size = min($batch_size, 2);
+        }
+        $quality = max(1, min(100, (int) ($_POST['quality'] ?? (int) \WSO\Core\Settings::instance()->get('wso_quality', 82))));
 
         $manager   = Queue_Manager::instance();
         $optimizer = Optimizer::instance();
@@ -139,12 +184,27 @@ class Async_Processor {
                     if (!$current || !file_exists($current)) {
                         throw new \Exception('فایل رسانه یافت نشد.');
                     }
-                    $res = $optimizer->optimize_attachment($attachment_id);
+                    if ('convert' === $bulk_mode) {
+                        $converter = \WSO\Engine\Format_Converter::instance();
+                        $res = $converter->convert_attachment($attachment_id, $target_format, $quality);
+                    } else {
+                        $res = $optimizer->optimize_attachment($attachment_id);
+                    }
                 } else {
                     if (!file_exists($file_path) || !is_file($file_path) || !is_readable($file_path)) {
                         throw new \Exception('فایل صف یافت نشد.');
                     }
-                    $res = $optimizer->optimize_file($file_path);
+                    if ('convert' === $bulk_mode) {
+                        $converter = \WSO\Engine\Format_Converter::instance();
+                        $res = $converter->convert($file_path, $target_format, $quality);
+                        if (!empty($res['success'])) {
+                            $res['status'] = Logger::STATUS_SUCCESS;
+                        } else {
+                            $res['status'] = Logger::STATUS_ERROR;
+                        }
+                    } else {
+                        $res = $optimizer->optimize_file($file_path);
+                    }
                 }
             } catch (\Throwable $e) {
                 $res = ['status' => Logger::STATUS_ERROR, 'message' => $e->getMessage()];

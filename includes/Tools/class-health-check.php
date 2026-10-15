@@ -48,17 +48,36 @@ class Health_Check {
      * @return array
      */
     public function perform_scan(): array {
-        $scan = [
-            'server'      => $this->check_server(),
-            'extensions'  => $this->check_extensions(),
-            'formats'     => $this->check_formats(),
-            'wordpress'   => $this->check_wordpress(),
-            'integrity'   => $this->check_integrity(),
-            'engine'      => $this->check_engine(),
-        ];
+        $scan = [];
+        foreach ([
+            'server'     => 'check_server',
+            'extensions' => 'check_extensions',
+            'formats'    => 'check_formats',
+            'wordpress'  => 'check_wordpress',
+            'integrity'  => 'check_integrity',
+            'engine'     => 'check_engine',
+        ] as $key => $method) {
+            try {
+                $res = $this->$method();
+                $scan[$key] = is_array($res) ? $res : [];
+            } catch (\Throwable $e) {
+                $scan[$key] = [
+                    'scan_error' => [
+                        'label'  => 'خطای اسکن',
+                        'value'  => 'ناموفق',
+                        'status' => 'error',
+                        'desc'   => 'اجرای این بخش با خطا مواجه شد و نادیده گرفته شد.',
+                    ],
+                ];
+            }
+        }
 
         // Calculate score
-        $score_data = $this->calculate_health_score($scan);
+        try {
+            $score_data = $this->calculate_health_score($scan);
+        } catch (\Throwable $e) {
+            $score_data = ['score' => 0, 'status' => 'error', 'status_text' => 'خطا'];
+        }
         $scan['score'] = $score_data['score'];
         $scan['status'] = $score_data['status'];
         $scan['status_text'] = $score_data['status_text'];
@@ -543,6 +562,5 @@ class Health_Check {
                 break;
         }
         return $bytes;
-    }
     }
 }

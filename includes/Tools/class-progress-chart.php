@@ -97,7 +97,7 @@ class Progress_Chart {
         $query = new \WP_Query([
             'post_type'      => 'attachment',
             'post_status'    => 'inherit',
-            'post_mime_type' => ['image/jpeg', 'image/png', 'image/webp'],
+            'post_mime_type' => ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'],
             'posts_per_page' => 200,
             'fields'         => 'ids',
             'meta_query'     => [

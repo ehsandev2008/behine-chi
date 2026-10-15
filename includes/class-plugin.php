@@ -159,11 +159,33 @@ class Plugin {
                 Admin\Before_After::instance();
             }
 
+            if (class_exists('WSO\\Admin\\Setup_Wizard')) {
+                Admin\Setup_Wizard::instance();
+            }
+
+            if (class_exists('WSO\\Tools\\Maintenance')) {
+                Tools\Maintenance::instance();
+            }
+
+            if (class_exists('WSO\\Tools\\Weekly_Report')) {
+                Tools\Weekly_Report::instance();
+            }
+
+            if (class_exists('WSO\\Tools\\Remote_Import')) {
+                Tools\Remote_Import::instance();
+            }
+
             // Injects dynamic CSS Customizer & local fonts into the admin header
             add_action('admin_head', [$this, 'output_admin_head_css']);
 
-            // Registers notifications badge count in the WordPress top admin bar
-            add_action('admin_bar_menu', [$this, 'add_admin_bar_node'], 99);
+            // NOTE: Top admin-bar node is owned solely by WSO\Tools\Toolbar
+            // (id: wso-toolbar) to avoid duplicate "بهینه چی" entries.
+            // Plugin::add_admin_bar_node() is kept for backward compatibility
+            // but is no longer hooked.
+        }
+
+        if (class_exists('WSO\\Tools\\Picture_Delivery')) {
+            Tools\Picture_Delivery::instance();
         }
 
         // Automatic Alt Text must also run for uploads handled outside wp-admin
@@ -314,6 +336,14 @@ class Plugin {
             Tools\Auto_Alert::instance()->schedule();
         }
 
+        if (class_exists('WSO\\Tools\\Maintenance')) {
+            Tools\Maintenance::instance()->schedule();
+        }
+
+        if (class_exists('WSO\\Tools\\Weekly_Report')) {
+            Tools\Weekly_Report::instance()->schedule();
+        }
+
         flush_rewrite_rules();
     }
 
@@ -331,6 +361,14 @@ class Plugin {
         // Unschedule auto-alert cron
         if (class_exists('WSO\\Tools\\Auto_Alert')) {
             Tools\Auto_Alert::instance()->unschedule();
+        }
+
+        if (class_exists('WSO\\Tools\\Maintenance')) {
+            Tools\Maintenance::instance()->unschedule();
+        }
+
+        if (class_exists('WSO\\Tools\\Weekly_Report')) {
+            Tools\Weekly_Report::instance()->unschedule();
         }
 
         flush_rewrite_rules();

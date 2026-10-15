@@ -213,17 +213,24 @@
     function loadHealthCheck() {
         var $report = $('#wso-health-report-box');
         if (!$report.length) return;
+        if (typeof wsoData === 'undefined' || !wsoData.ajax_url) {
+            return; // Keep server-rendered PHP content.
+        }
 
-        $report.html('<div class="wso-loading-skeleton" style="height:200px; border-radius:8px;"></div>');
+        var $btn = $('#wso-btn-recheck-health');
+        var btnOrig = $btn.html();
+        $btn.prop('disabled', true).addClass('is-loading');
 
         $.post(wsoData.ajax_url, {
             action: 'wso_run_health_check',
             nonce: wsoData.nonce
         }).done(function (res) {
-            if (res.success) {
-                var score = res.data.score;
-                var status = res.data.status;
-                var status_text = res.data.status_text;
+            if (res && res.success && res.data && typeof res.data === 'object') {
+                var score = parseInt(res.data.score, 10);
+                if (isNaN(score)) score = 0;
+                score = Math.max(0, Math.min(100, score));
+                var status = res.data.status || 'error';
+                var status_text = res.data.status_text || 'خطا';
 
                 $('#wso-health-score-num').text(score + '%');
                 $('#wso-health-score-label').text('وضعیت: ' + status_text);
@@ -258,12 +265,19 @@
                     'engine': 'وضعیت ماژول‌های بهینه‌ساز'
                 };
 
+                var hasAny = false;
                 $.each(catMapping, function (catKey, catLabel) {
-                    html += '<div class="wso-health-group-title">' + catLabel + '</div>';
+                    var items = res.data[catKey];
+                    if (!items || typeof items !== 'object') return;
+                    var keys = Object.keys(items);
+                    if (!keys.length) return;
+                    hasAny = true;
+                    html += '<div class="wso-health-group-title">' + escHtml(catLabel) + '</div>';
                     html += '<div class="wso-grid wso-grid-2">';
 
-                    $.each(res.data[catKey], function (checkKey, check) {
-                        var statusBadge = '';
+                    $.each(items, function (checkKey, check) {
+                        if (!check) return;
+                        var statusBadge = '<span class="wso-badge">—</span>';
                         if (check.status === 'success') {
                             statusBadge = '<span class="wso-badge wso-badge-success">سالم</span>';
                         } else if (check.status === 'warning') {
@@ -274,8 +288,8 @@
 
                         html += '<div class="wso-health-item">' +
                             '<div class="wso-health-item-left">' +
-                                '<span class="wso-health-item-label">' + check.label + ': <strong style="color:var(--wso-primary);">' + check.value + '</strong></span>' +
-                                '<span class="wso-health-item-desc">' + check.desc + '</span>' +
+                                '<span class="wso-health-item-label">' + escHtml(check.label || checkKey) + ': <strong style="color:var(--wso-primary);">' + escHtml(check.value || '') + '</strong></span>' +
+                                '<span class="wso-health-item-desc">' + escHtml(check.desc || '') + '</span>' +
                             '</div>' +
                             '<div class="wso-health-item-right">' + statusBadge + '</div>' +
                             '</div>';
@@ -284,10 +298,30 @@
                     html += '</div>';
                 });
 
-                $report.html(html);
+                if (!hasAny) {
+                    // Keep PHP-rendered content; just notify.
+                    showToast('داده‌ای از اسکن سلامت دریافت نشد؛ نمایش فعلی حفظ شد.', 'warning');
+                } else {
+                    $report.html(html);
+                }
             } else {
-                $report.html('<div class="wso-text-center py-4">' + wsoData.i18n.error + '</div>');
+                var msg = (res && res.data && res.data.message) ? res.data.message : ((typeof wsoData !== 'undefined' && wsoData.i18n && wsoData.i18n.error) ? wsoData.i18n.error : 'خطا در دریافت گزارش سلامت.');
+                // Keep PHP content; surface error via toast + inline note on top.
+                showToast(msg, 'error');
+                if (!$report.find('.wso-health-ajax-note').length) {
+                    $report.prepend('<div class="wso-health-ajax-note wso-text-center py-4" style="color:var(--wso-danger);font-size:12px;">' + escHtml(msg) + '</div>');
+                }
             }
+        }).fail(function (jqXHR) {
+            var errMsg = 'خطا در ارتباط با سرور. نمایش فعلی حفظ شد؛ برای تلاش مجدد دکمه بررسی مجدد را بزنید.';
+            if (jqXHR && jqXHR.responseJSON && jqXHR.responseJSON.data && jqXHR.responseJSON.data.message) {
+                errMsg = jqXHR.responseJSON.data.message;
+            }
+            // Do NOT blank the box: keep server-rendered report.
+            showToast(errMsg, 'error');
+        }).always(function () {
+            $btn.prop('disabled', false).removeClass('is-loading').html(btnOrig);
+            // Re-bind in case html() replaced content (it doesn't, but safe).
         });
     }
 
@@ -343,9 +377,10 @@
     function loadNotifications() {
         var $feed = $('#wso-notifications-feed');
         if (!$feed.length) return;
+        if (typeof wsoData === 'undefined' || !wsoData.ajax_url) return;
 
-        var type = $('#wso-notify-filter-type').val();
-        var search = $('#wso-notify-search').val();
+        var type = $('#wso-notify-filter-type').length ? ($('#wso-notify-filter-type').val() || '') : '';
+        var search = $('#wso-notify-search').length ? ($('#wso-notify-search').val() || '') : '';
 
         $.post(wsoData.ajax_url, {
             action: 'wso_get_notifications',
@@ -353,9 +388,9 @@
             type: type,
             search: search
         }).done(function (res) {
-            if (res.success) {
+            if (res && res.success && res.data) {
                 // Update badge triggers
-                var count = res.data.unread_count;
+                var count = parseInt(res.data.unread_count, 10) || 0;
                 if (count > 0) {
                     $('#wso-badge-count').text(count).show();
                     $('.ab-item-notification-badge').text(count).show();
@@ -364,11 +399,14 @@
                     $('.ab-item-notification-badge').hide();
                 }
 
-                if (res.data.notifications.length > 0) {
+                var list = res.data.notifications || [];
+                if (list.length > 0) {
                     var html = '';
-                    $.each(res.data.notifications, function (i, item) {
-                        var unreadClass = item.is_read == 0 ? 'unread' : '';
-                        var dismissBtn = item.is_read == 0 ? '<button type="button" class="wso-btn-notify-dismiss" data-id="' + item.id + '" title="علامت به عنوان خوانده شده"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg></button>' : '';
+                    $.each(list, function (i, item) {
+                        if (!item) return;
+                        var unreadClass = (item.is_read == 0) ? 'unread' : '';
+                        var safeType = escHtml(item.type || 'info');
+                        var dismissBtn = (item.is_read == 0) ? '<button type="button" class="wso-btn-notify-dismiss" data-id="' + escHtml(String(item.id)) + '" title="علامت به عنوان خوانده شده"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg></button>' : '';
 
                         var icon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>';
                         if (item.type === 'success') {
@@ -379,11 +417,11 @@
                             icon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>';
                         }
 
-                        html += '<div class="wso-notification-card ' + unreadClass + ' ' + item.type + '">' +
+                        html += '<div class="wso-notification-card ' + unreadClass + ' ' + safeType + '">' +
                             '<div class="wso-notification-icon">' + icon + '</div>' +
                             '<div class="wso-notification-body">' +
-                                '<p class="wso-notification-text">' + item.message + '</p>' +
-                                '<span class="wso-notification-time">' + item.created_at + '</span>' +
+                                '<p class="wso-notification-text">' + escHtml(item.message || '') + '</p>' +
+                                '<span class="wso-notification-time">' + escHtml(item.created_at || '') + '</span>' +
                             '</div>' +
                             dismissBtn +
                             '</div>';
@@ -392,8 +430,13 @@
                 } else {
                     $feed.html('<div class="wso-text-center py-4">هیچ اعلانی ثبت نشده است.</div>');
                 }
+            } else if (res && !res.success) {
+                $feed.html('<div class="wso-text-center py-4">' + escHtml((res.data && res.data.message) || 'خطا در دریافت اعلان‌ها.') + '</div>');
             }
+        }).fail(function () {
+            $feed.html('<div class="wso-text-center py-4">خطا در ارتباط با سرور. <button type="button" class="wso-btn wso-btn-secondary" onclick="jQuery(\'#wso-btn-notify-mark-read\').length?void(0):void(0);window.wsoReloadNotif&&window.wsoReloadNotif();">تلاش مجدد</button></div>');
         });
+        window.wsoReloadNotif = loadNotifications;
     }
 
     // Tab Navigation
@@ -409,6 +452,14 @@
 
             if (targetTab === 'tab-logs') {
                 loadLogs(1);
+            } else if (targetTab === 'tab-notifications') {
+                loadNotifications();
+            } else if (targetTab === 'tab-health') {
+                // Refresh only if box is empty (PHP already rendered initial content).
+                var $box = $('#wso-health-report-box');
+                if ($box.length && !$box.find('.wso-health-item').length && !$box.find('.wso-health-ajax-note').length) {
+                    loadHealthCheck();
+                }
             }
         });
         
@@ -630,6 +681,39 @@
                     });
                 }
             });
+        });
+
+        $('#wso-btn-run-maintenance').on('click', function (e) {
+            e.preventDefault();
+            var $s = $('#wso-maintenance-status');
+            $s.text('در حال اجرا...');
+            $.post(wsoData.ajax_url, { action: 'wso_run_maintenance', nonce: wsoData.nonce }).done(function (res) {
+                $s.text(res.success ? res.data.message : 'خطا');
+                showToast(res.success ? res.data.message : 'خطا', res.success ? 'success' : 'error');
+            }).fail(function () { $s.text('خطای شبکه'); });
+        });
+
+        $('#wso-btn-rewrite-rules').on('click', function (e) {
+            e.preventDefault();
+            var $o = $('#wso-rewrite-output');
+            $o.show().text('در حال دریافت...');
+            $.post(wsoData.ajax_url, { action: 'wso_get_rewrite_rules', nonce: wsoData.nonce }).done(function (res) {
+                if (res.success) {
+                    $o.text(res.data.htaccess + '\n\n' + res.data.nginx);
+                }
+            });
+        });
+
+        $('#wso-btn-import-remote').on('click', function (e) {
+            e.preventDefault();
+            var pid = parseInt($('#wso-remote-post-id').val(), 10);
+            if (!pid) { showToast('ID نوشته را وارد کنید.', 'warning'); return; }
+            var $s = $('#wso-remote-status');
+            $s.text('در حال ایمپورت...');
+            $.post(wsoData.ajax_url, { action: 'wso_import_remote', nonce: wsoData.nonce, post_id: pid }).done(function (res) {
+                $s.text(res.success ? res.data.message : 'خطا');
+                showToast(res.success ? res.data.message : 'خطا', res.success ? 'success' : 'error');
+            }).fail(function () { $s.text('خطای شبکه'); });
         });
     }
 

@@ -231,7 +231,7 @@ class GD_Driver implements Image_Driver {
             imagedestroy($src_img);
             return false;
         }
-        if ($mime === 'image/png' || $mime === 'image/webp') {
+        if ($mime === 'image/png' || $mime === 'image/webp' || $mime === 'image/avif') {
             imagealphablending($dst_img, false);
             imagesavealpha($dst_img, true);
         }
@@ -248,6 +248,10 @@ class GD_Driver implements Image_Driver {
             $saved = @imagepng($dst_img, $tmp, 6);
         } elseif ($mime === 'image/webp') {
             $saved = function_exists('imagewebp') ? @imagewebp($dst_img, $tmp, $quality) : false;
+        } elseif ($mime === 'image/avif') {
+            $saved = function_exists('imageavif') ? @imageavif($dst_img, $tmp, $quality) : false;
+        } elseif ($mime === 'image/gif') {
+            $saved = function_exists('imagegif') ? @imagegif($dst_img, $tmp) : false;
         } else {
             imagedestroy($dst_img);
             return false;
@@ -283,7 +287,7 @@ class GD_Driver implements Image_Driver {
             return false;
         }
         $mime = $info['mime'] ?? '';
-        if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
+        if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/avif'], true)) {
             return false;
         }
         if (($info[0] * $info[1]) > 50000000) {
@@ -303,6 +307,8 @@ class GD_Driver implements Image_Driver {
             $saved = @imagejpeg($src, $tmp, $quality);
         } elseif ($mime === 'image/webp') {
             $saved = function_exists('imagewebp') ? @imagewebp($src, $tmp, $quality) : false;
+        } elseif ($mime === 'image/avif') {
+            $saved = function_exists('imageavif') ? @imageavif($src, $tmp, $quality) : false;
         } else {
             $saved = @imagepng($src, $tmp, 6);
         }

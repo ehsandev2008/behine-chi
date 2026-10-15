@@ -54,19 +54,24 @@ class Assets_Loader {
             return;
         }
 
+        // Cache-busting by filemtime so fixes reach browsers immediately.
+        $ver_css = function_exists('wp_get_theme') ? $this->file_ver('assets/css/admin.css') : WSO_VERSION;
+        $ver_js = $this->file_ver('assets/js/admin.js');
+        $ver_bulk = $this->file_ver('assets/js/bulk-optimizer.js');
+
         // Styles
         wp_enqueue_style(
             'wso-admin-css',
             WSO_URL . 'assets/css/admin.css',
             [],
-            WSO_VERSION
+            $ver_css
         );
 
         wp_enqueue_style(
             'wso-media-css',
             WSO_URL . 'assets/css/media.css',
             [],
-            WSO_VERSION
+            $ver_css
         );
 
         // Scripts
@@ -74,23 +79,23 @@ class Assets_Loader {
             'wso-admin-js',
             WSO_URL . 'assets/js/admin.js',
             ['jquery'],
-            WSO_VERSION,
+            $ver_js,
             true
         );
 
         wp_enqueue_script(
             'wso-bulk-optimizer-js',
             WSO_URL . 'assets/js/bulk-optimizer.js',
-            ['jquery'],
-            WSO_VERSION,
+            ['jquery', 'wso-admin-js'],
+            $ver_bulk,
             true
         );
 
         wp_enqueue_script(
             'wso-scanner-js',
             WSO_URL . 'assets/js/scanner.js',
-            ['jquery'],
-            WSO_VERSION,
+            ['jquery', 'wso-admin-js'],
+            $ver_js,
             true
         );
 
@@ -98,7 +103,7 @@ class Assets_Loader {
             'wso-media-js',
             WSO_URL . 'assets/js/media.js',
             ['jquery'],
-            WSO_VERSION,
+            $ver_js,
             true
         );
 
@@ -140,5 +145,16 @@ class Assets_Loader {
         ];
 
         wp_localize_script('wso-admin-js', 'wsoData', $localized);
+    }
+
+    private function file_ver(string $rel): string {
+        $abs = (defined('WSO_PATH') ? WSO_PATH : '') . $rel;
+        if (is_string($abs) && file_exists($abs)) {
+            $t = (int) @filemtime($abs);
+            if ($t > 0) {
+                return (defined('WSO_VERSION') ? WSO_VERSION . '.' : '') . $t;
+            }
+        }
+        return defined('WSO_VERSION') ? WSO_VERSION : '1.0';
     }
 }

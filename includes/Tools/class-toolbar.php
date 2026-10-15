@@ -28,10 +28,20 @@ class Toolbar {
     }
 
     /**
-     * Add toolbar items.
+     * Add toolbar items (single owner of the top-level "بهینه چی" node).
      */
     public function add_toolbar_items(\WP_Admin_Bar $wp_admin_bar): void {
         if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        // Remove legacy duplicate top-level node if some other hook added it.
+        if ($wp_admin_bar->get_node('wso-notifications-bar')) {
+            $wp_admin_bar->remove_node('wso-notifications-bar');
+        }
+
+        // Idempotency: some setups fire admin_bar_menu twice.
+        if ($wp_admin_bar->get_node('wso-toolbar')) {
             return;
         }
 
@@ -41,13 +51,24 @@ class Toolbar {
             $stats = ['saved_size' => '—'];
         }
 
-        // Main menu item
+        $unread = 0;
+        try {
+            if (class_exists('WSO\\Tools\\Notifications')) {
+                $unread = (int) \WSO\Tools\Notifications::instance()->get_unread_count();
+            }
+        } catch (\Throwable $e) {
+            $unread = 0;
+        }
+        $badge = $unread > 0 ? ' <span class="ab-item-notification-badge">' . esc_html(number_format_i18n($unread)) . '</span>' : '';
+
+        // Main menu item (the ONLY top-level "بهینه چی" node).
         $wp_admin_bar->add_node([
             'id'    => 'wso-toolbar',
-            'title' => 'بهینه چی',
+            'title' => esc_html__('بهینه چی', 'behinechi-optimizer') . $badge,
             'href'  => admin_url('upload.php?page=wso-settings'),
             'meta'  => [
                 'class' => 'wso-toolbar-menu',
+                'title' => esc_attr__('وضعیت و اعلان‌های افزونه بهینه چی', 'behinechi-optimizer'),
             ],
         ]);
 
@@ -73,6 +94,18 @@ class Toolbar {
             'parent' => 'wso-toolbar',
             'title'  => 'بهینه‌سازی همگانی',
             'href'   => admin_url('upload.php?page=wso-settings#tab-bulk'),
+        ]);
+
+        // Notifications center (merged here so no second top-level node is needed).
+        $notif_title = 'مرکز اعلان‌ها';
+        if ($unread > 0) {
+            $notif_title .= ' (' . number_format_i18n($unread) . ')';
+        }
+        $wp_admin_bar->add_node([
+            'id'     => 'wso-toolbar-notifications',
+            'parent' => 'wso-toolbar',
+            'title'  => esc_html($notif_title),
+            'href'   => admin_url('upload.php?page=wso-settings#tab-notifications'),
         ]);
 
         // Quick Stats

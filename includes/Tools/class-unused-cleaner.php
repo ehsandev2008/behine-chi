@@ -43,7 +43,7 @@ class Unused_Cleaner {
             $args = [
                 'post_type'      => 'attachment',
                 'post_status'    => 'inherit',
-                'post_mime_type' => ['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/svg+xml'],
+                'post_mime_type' => ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif', 'image/svg+xml'],
                 'posts_per_page' => 200,
                 'paged'          => $paged,
                 'fields'         => 'ids',

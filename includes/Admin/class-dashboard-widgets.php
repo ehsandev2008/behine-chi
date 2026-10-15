@@ -28,7 +28,7 @@ class Dashboard_Widgets {
 
         // Total media attachments (direct count to avoid loading all IDs into memory).
         $total_images = (int) $wpdb->get_var(
-            "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'attachment' AND post_mime_type IN ('image/jpeg','image/png','image/webp','image/svg+xml')"
+            "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'attachment' AND post_mime_type IN ('image/jpeg','image/png','image/gif','image/webp','image/avif','image/svg+xml')"
         );
 
         // Sum original and optimized sizes from logs table (deduplicated by file_name)

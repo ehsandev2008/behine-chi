@@ -58,6 +58,22 @@ class Settings {
         'wso_smart_lazy_load' => 0,
         'wso_auto_scan' => 0,
         'wso_on_the_fly' => 0,
+        'wso_picture_delivery' => 0,
+        'wso_quality_webp' => 82,
+        'wso_quality_avif' => 75,
+        'wso_quality_thumb' => 78,
+        'wso_exclude_patterns' => '',
+        'wso_exclude_post_types' => '',
+        'wso_exclude_below_kb' => 0,
+        'wso_backup_retention_days' => 0,
+        'wso_log_retention_days' => 90,
+        'wso_backup_quota_mb' => 0,
+        'wso_offpeak_enabled' => 0,
+        'wso_offpeak_start' => 1,
+        'wso_offpeak_end' => 6,
+        'wso_throttle_per_minute' => 0,
+        'wso_weekly_report' => 0,
+        'wso_setup_done' => 0,
         'wso_cloudinary_cloud' => '',
         'wso_cloudinary_key' => '',
         'wso_cloudinary_secret' => '',
@@ -226,6 +242,27 @@ class Settings {
                 return max(0, min(200, (int) $value));
             case 'wso_webp_recompress_threshold':
                 return max(0, min(50, (int) $value));
+            case 'wso_quality_webp':
+            case 'wso_quality_avif':
+            case 'wso_quality_thumb':
+                return max(10, min(100, (int) $value));
+            case 'wso_exclude_below_kb':
+                return max(0, min(50000, (int) $value));
+            case 'wso_backup_retention_days':
+                return max(0, min(3650, (int) $value));
+            case 'wso_log_retention_days':
+                return max(7, min(3650, (int) $value));
+            case 'wso_backup_quota_mb':
+                return max(0, min(100000, (int) $value));
+            case 'wso_offpeak_start':
+            case 'wso_offpeak_end':
+                return max(0, min(23, (int) $value));
+            case 'wso_throttle_per_minute':
+                return max(0, min(600, (int) $value));
+            case 'wso_exclude_patterns':
+            case 'wso_exclude_post_types':
+                $v = sanitize_text_field((string) $value);
+                return substr($v, 0, 2000);
             case 'wso_backup_alert_threshold':
                 return max(0, min(10000, (int) $value));
             case 'wso_watermark_image':
@@ -282,6 +319,7 @@ class Settings {
                     'wso_strip_exif','wso_backup_originals','wso_optimize_svg','wso_auto_optimize',
                     'wso_dark_mode','wso_watermark_enabled','wso_auto_alt_enabled','wso_auto_alt_overwrite',
                     'wso_preload_webp','wso_smart_lazy_load','wso_auto_scan','wso_on_the_fly','wso_auto_alert',
+                    'wso_picture_delivery','wso_offpeak_enabled','wso_weekly_report','wso_setup_done',
                 ], true)) {
                     return ((int) $value) ? 1 : 0;
                 }

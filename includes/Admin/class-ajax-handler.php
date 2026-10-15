@@ -71,6 +71,12 @@ class Ajax_Handler {
 
         // Auto alerts
         add_action('wp_ajax_wso_run_auto_alert', [$this, 'handle_run_auto_alert']);
+
+        // New: estimate, maintenance, remote import, rewrite helpers
+        add_action('wp_ajax_wso_estimate_bulk', [$this, 'handle_estimate_bulk']);
+        add_action('wp_ajax_wso_run_maintenance', [$this, 'handle_run_maintenance']);
+        add_action('wp_ajax_wso_import_remote', [$this, 'handle_import_remote']);
+        add_action('wp_ajax_wso_get_rewrite_rules', [$this, 'handle_get_rewrite_rules']);
     }
 
     /**
@@ -116,6 +122,9 @@ class Ajax_Handler {
             'wso_smart_lazy_load',
             'wso_auto_scan',
             'wso_on_the_fly',
+            'wso_picture_delivery',
+            'wso_offpeak_enabled',
+            'wso_weekly_report',
             'wso_auto_alert'
         ];
 
@@ -132,6 +141,9 @@ class Ajax_Handler {
 
         $number_fields = [
             'wso_quality',
+            'wso_quality_webp',
+            'wso_quality_avif',
+            'wso_quality_thumb',
             'wso_max_size',
             'wso_max_width',
             'wso_max_height',
@@ -139,7 +151,14 @@ class Ajax_Handler {
             'wso_watermark_margin',
             'wso_watermark_image',
             'wso_webp_recompress_threshold',
-            'wso_backup_alert_threshold'
+            'wso_backup_alert_threshold',
+            'wso_exclude_below_kb',
+            'wso_backup_retention_days',
+            'wso_log_retention_days',
+            'wso_backup_quota_mb',
+            'wso_offpeak_start',
+            'wso_offpeak_end',
+            'wso_throttle_per_minute'
         ];
 
         foreach ($number_fields as $field) {
@@ -159,6 +178,8 @@ class Ajax_Handler {
                     $val = max(0, min(50, $val));
                 } elseif ('wso_backup_alert_threshold' === $field) {
                     $val = max(0, min(10000, $val));
+                } elseif ('wso_quality_webp' === $field || 'wso_quality_avif' === $field || 'wso_quality_thumb' === $field) {
+                    $val = max(10, min(100, $val));
                 } elseif ('wso_watermark_image' === $field) {
                     $val = max(0, $val);
                     // Validate that the ID belongs to a real image attachment.
@@ -208,7 +229,9 @@ class Ajax_Handler {
             'wso_slack_webhook',
             'wso_telegram_token',
             'wso_telegram_chat',
-            'wso_api_key'
+            'wso_api_key',
+            'wso_exclude_patterns',
+            'wso_exclude_post_types'
         ];
 
         foreach ($text_fields as $field) {
@@ -378,8 +401,24 @@ class Ajax_Handler {
      */
     public function handle_run_health_check(): void {
         $this->verify_security();
-        $report = \WSO\Tools\Health_Check::instance()->perform_scan();
-        wp_send_json_success($report);
+        try {
+            $report = \WSO\Tools\Health_Check::instance()->perform_scan();
+            if (!is_array($report)) {
+                throw new \Exception('خروجی اسکن سلامت نامعتبر است.');
+            }
+            // Guarantee expected keys so JS never renders a blank box.
+            foreach (['server', 'extensions', 'formats', 'wordpress', 'integrity', 'engine'] as $cat) {
+                if (!isset($report[$cat]) || !is_array($report[$cat])) {
+                    $report[$cat] = [];
+                }
+            }
+            $report['score'] = isset($report['score']) ? (int) $report['score'] : 0;
+            $report['status'] = isset($report['status']) ? (string) $report['status'] : 'error';
+            $report['status_text'] = isset($report['status_text']) ? (string) $report['status_text'] : 'خطا';
+            wp_send_json_success($report);
+        } catch (\Throwable $e) {
+            wp_send_json_error(['message' => 'اجرای اسکن سلامت با خطا مواجه شد: ' . $e->getMessage()], 500);
+        }
     }
 
     /**
@@ -484,7 +523,13 @@ class Ajax_Handler {
         $quality = max(1, min(100, (int) ($_POST['quality'] ?? 85)));
 
         $converter = \WSO\Engine\Format_Converter::instance();
-        $result = $converter->convert_all_thumbnails($attachment_id, $target_format, $quality);
+        // For next-gen targets convert the full attachment (main + thumbs);
+        // for legacy targets keep thumbnail-only behaviour.
+        if (in_array($target_format, ['webp', 'avif'], true)) {
+            $result = $converter->convert_attachment($attachment_id, $target_format, $quality);
+        } else {
+            $result = $converter->convert_all_thumbnails($attachment_id, $target_format, $quality);
+        }
 
         wp_send_json_success($result);
     }
@@ -496,5 +541,69 @@ class Ajax_Handler {
         $this->verify_security();
         \WSO\Tools\Auto_Alert::instance()->check_and_notify();
         wp_send_json_success(['message' => 'بررسی هشدارها انجام شد.']);
+    }
+
+    public function handle_estimate_bulk(): void {
+        $this->verify_security();
+        $q = new \WP_Query([
+            'post_type'      => 'attachment',
+            'post_status'    => 'inherit',
+            'post_mime_type' => ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'],
+            'posts_per_page' => 200,
+            'paged'          => 1,
+            'fields'         => 'ids',
+            'no_found_rows'  => true,
+            'meta_query'     => [[ 'key' => '_wso_optimized', 'compare' => 'NOT EXISTS' ]],
+        ]);
+        $ids = $q->posts ?: [];
+        $count = count($ids);
+        $bytes = 0;
+        foreach ($ids as $id) {
+            $f = get_attached_file((int) $id);
+            if ($f && file_exists($f)) {
+                $bytes += (int) filesize($f);
+            }
+        }
+        $avg_save = 0.55;
+        try {
+            global $wpdb;
+            $db = \WSO\Core\Database::instance();
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+            $row = $wpdb->get_row("SELECT AVG(savings_percent) a FROM {$db->logs_table} WHERE status='success'", ARRAY_A);
+            if (!empty($row['a'])) {
+                $avg_save = max(0.1, min(0.85, ((float) $row['a']) / 100));
+            }
+        } catch (\Throwable $e) {}
+        wp_send_json_success([
+            'count' => $count,
+            'total_size' => size_format($bytes, 2),
+            'estimated_saving' => size_format((int) ($bytes * $avg_save), 2),
+            'message' => sprintf('%d تصویر (%s) — صرفه‌جویی تقریبی %s', $count, size_format($bytes, 2), size_format((int) ($bytes * $avg_save), 2)),
+        ]);
+    }
+
+    public function handle_run_maintenance(): void {
+        $this->verify_security();
+        $m = \WSO\Tools\Maintenance::instance();
+        $b = $m->prune_backups();
+        $l = $m->prune_logs();
+        \WSO\Tools\Notifications::instance()->add('success', sprintf('نگهداری انجام شد: %d بکاپ (%s) و %d لاگ قدیمی پاک شد.', $b['deleted'], size_format($b['freed'], 2), $l));
+        wp_send_json_success(['message' => 'نگهداری انجام شد.', 'backups' => $b, 'logs' => $l]);
+    }
+
+    public function handle_import_remote(): void {
+        $this->verify_security();
+        $post_id = (int) ($_POST['post_id'] ?? 0);
+        if ($post_id <= 0 || !get_post($post_id)) {
+            wp_send_json_error(['message' => 'شناسه پست نامعتبر است.']);
+        }
+        $res = \WSO\Tools\Remote_Import::instance()->import_for_post($post_id, 5);
+        wp_send_json_success(array_merge($res, ['message' => sprintf('%d تصویر خارجی ایمپورت شد.', $res['imported'])]));
+    }
+
+    public function handle_get_rewrite_rules(): void {
+        $this->verify_security();
+        $p = \WSO\Tools\Picture_Delivery::instance();
+        wp_send_json_success(['htaccess' => $p->get_htaccess_rules(), 'nginx' => $p->get_nginx_snippet()]);
     }
 }

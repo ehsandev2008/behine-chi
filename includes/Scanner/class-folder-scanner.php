@@ -35,7 +35,7 @@ class Folder_Scanner {
      *
      * @var array<string>
      */
-    private const ALLOWED_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'avif', 'svg'];
+    private const ALLOWED_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'svg'];
 
     /**
      * Max files returned per scan response (prevents timeouts on huge dirs).

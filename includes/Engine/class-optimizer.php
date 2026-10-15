@@ -98,6 +98,24 @@ class Optimizer {
         }
 
         $orig_size = filesize($file_path);
+        // Exclusion rules (name pattern / post type / tiny files).
+        try {
+            if (class_exists('WSO\\Tools\\Exclusions')) {
+                $ex = \WSO\Tools\Exclusions::is_excluded($file_path, $attachment_id);
+                if (!empty($ex['excluded'])) {
+                    $msg = (string) ($ex['reason'] ?? 'فایل در لیست استثنا است.');
+                    Logger::log([
+                        'attachment_id' => $attachment_id,
+                        'file_name'     => basename($file_path),
+                        'original_size' => $orig_size,
+                        'optimized_size'=> $orig_size,
+                        'status'        => Logger::STATUS_SKIPPED,
+                        'message'       => $msg,
+                    ]);
+                    return ['status' => Logger::STATUS_SKIPPED, 'message' => $msg];
+                }
+            }
+        } catch (\Throwable $e) {}
         $max_size_mb = (int) $settings->get('wso_max_size', 2);
         if ($orig_size > ($max_size_mb * 1024 * 1024)) {
             $msg = sprintf('حجم فایل بیشتر از حد مجاز تعیین شده (%d مگابایت) است و نادیده گرفته شد.', $max_size_mb);
@@ -146,8 +164,8 @@ class Optimizer {
             $mime = 'image/svg+xml';
         }
 
-        $supported_mimes = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'];
-        $supported_exts = ['jpg', 'jpeg', 'png', 'webp', 'svg'];
+        $supported_mimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif', 'image/svg+xml'];
+        $supported_exts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'svg'];
         if (!in_array($mime, $supported_mimes, true) || !in_array($ext, $supported_exts, true)) {
             Logger::log([
                 'attachment_id' => $attachment_id,
@@ -155,11 +173,11 @@ class Optimizer {
                 'original_size' => $orig_size,
                 'optimized_size'=> $orig_size,
                 'status'        => Logger::STATUS_SKIPPED,
-                'message'       => 'فرمت تصویر پشتیبانی نمی‌شود (تنها JPEG، PNG، WebP و SVG قابل بهینه‌سازی هستند).',
+                'message'       => 'فرمت تصویر پشتیبانی نمی‌شود (تنها JPEG، PNG، GIF، WebP، AVIF و SVG قابل بهینه‌سازی هستند).',
             ]);
             return [
                 'status'  => Logger::STATUS_SKIPPED,
-                'message' => 'فرمت تصویر پشتیبانی نمی‌شود (تنها JPEG، PNG، WebP و SVG قابل بهینه‌سازی هستند).',
+                'message' => 'فرمت تصویر پشتیبانی نمی‌شود (تنها JPEG، PNG، GIF، WebP، AVIF و SVG قابل بهینه‌سازی هستند).',
             ];
         }
 
@@ -214,6 +232,21 @@ class Optimizer {
         }
 
         $quality = max(1, min(100, (int) $settings->get('wso_quality', 75)));
+        $quality_webp = $quality;
+        $quality_avif = $quality;
+        try {
+            if (class_exists('WSO\\Tools\\Exclusions')) {
+                // Thumbnails get their own quality; main file uses base quality.
+                $is_thumb_ctx = (false === $apply_watermark && $attachment_id > 0);
+                $quality_webp = \WSO\Tools\Exclusions::effective_quality('webp', $is_thumb_ctx);
+                $quality_avif = \WSO\Tools\Exclusions::effective_quality('avif', $is_thumb_ctx);
+                if (!$is_thumb_ctx) {
+                    $quality = \WSO\Tools\Exclusions::effective_quality('jpeg', false);
+                } else {
+                    $quality = \WSO\Tools\Exclusions::effective_quality('jpeg', true);
+                }
+            }
+        } catch (\Throwable $e) {}
 
         // Strip EXIF metadata (respects quality so file never grows).
         if ($settings->get('wso_strip_exif', 1)) {
@@ -272,7 +305,7 @@ class Optimizer {
                 }
             }
             
-            if (!$skip_webp && $this->driver->convert($file_path, $webp_file, 'image/webp', $quality)) {
+            if (!$skip_webp && $this->driver->convert($file_path, $webp_file, 'image/webp', $quality_webp)) {
                 // Drop converted file when it is larger than the (already recompressed) original.
                 $cur_size = file_exists($file_path) ? (int) filesize($file_path) : $orig_size;
                 if (file_exists($webp_file) && filesize($webp_file) < $cur_size) {
@@ -289,7 +322,7 @@ class Optimizer {
             $avif_file = $info['dirname'] . '/' . $info['filename'] . '.avif';
             if (wp_normalize_path($avif_file) !== wp_normalize_path($file_path)) {
                 // AVIF encode is CPU-heavy: skip tiny gains on small originals.
-                if ($this->driver->convert($file_path, $avif_file, 'image/avif', $quality)) {
+                if ($this->driver->convert($file_path, $avif_file, 'image/avif', $quality_avif)) {
                     $cur_size = file_exists($file_path) ? (int) filesize($file_path) : $orig_size;
                     $best = $cur_size;
                     if (!empty($generated_formats['webp']) && file_exists($generated_formats['webp'])) {
